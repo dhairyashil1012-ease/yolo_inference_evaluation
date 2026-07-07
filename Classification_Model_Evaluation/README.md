@@ -85,7 +85,7 @@ So for 1st phase that not require but for 2nd and 3rd phase that requires to you
 
 The ImageNet label configuration is available here:
 
-```[https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml)```
+```https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml```
 
 This YAML file contains all ImageNet class labels used by Ultralytics for classification models.
 

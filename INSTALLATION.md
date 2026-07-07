@@ -48,7 +48,7 @@ ONNX Runtime GPU supports only specific CUDA Toolkit versions. **Do not assume t
 
 Refer to the official ONNX Runtime compatibility table:
 
-```[https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements)```
+```https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements```
 
 Locate your installed CUDA Toolkit version and identify the corresponding supported **onnxruntime-gpu** release.
 
@@ -119,7 +119,7 @@ sudo apt-get autoremove
 
 Download the required CUDA Toolkit version from the NVIDIA CUDA Toolkit Archive:
 
-```[https://developer.nvidia.com/cuda-toolkit-archive](https://developer.nvidia.com/cuda-toolkit-archive)```
+```https://developer.nvidia.com/cuda-toolkit-archive```
 
 ### 3. Install the Compatible CUDA Version
 
@@ -423,7 +423,7 @@ Download the TensorRT package that matches your:
 
 Official NVIDIA Download Page:
 
-```[https://developer.nvidia.com/tensorrt/download/11x](https://developer.nvidia.com/tensorrt/download/11x)```
+```https://developer.nvidia.com/tensorrt/download/11x```
 
 > **Note**
 >

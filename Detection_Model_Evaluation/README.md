@@ -85,7 +85,7 @@ The COCO configuration is not required for Phase 1, but it is required for Phase
 
 The COCO dataset configuration is available here:
 
-```[https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml)```
+```https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml```
 
 
 Download the configuration file and place it in:
