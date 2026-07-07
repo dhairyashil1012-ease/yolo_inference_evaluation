@@ -1,0 +1,21 @@
+cuda-repo-ubuntu2404-12-8-local_12.8.2-570.211.01-1_amd64.deb
+
+Classification_Model_Evaluation/.ipynb_checkpoints
+
+Classification_Model_Evaluation/cls-yaml
+
+Classification_Model_Evaluation/Classification _Models
+
+Classification_Model_Evaluation/Images-20260702T141014Z-3-001
+
+Detection_Model_Evaluation/.ipynb_checkpoints
+Detection_Model_Evaluation/Detection_Models
+Detection_Model_Evaluation/detection-yaml
+Detection_Model_Evaluation/Images-20260702T141014Z-3-001
+
+Semantic_Segmentation_Model_Evaluation/.ipynb_checkpoints
+Semantic_Segmentation_Model_Evaluation/Images-20260702T141014Z-3-001
+Semantic_Segmentation_Model_Evaluation/Sem_Models
+Semantic_Segmentation_Model_Evaluation/sem-yaml
+
+.ipynb_checkpoints/

@@ -1,0 +1,12 @@
+notebook
+opencv-python
+PyYAML
+torch
+torchvision
+numpy
+Pillow
+tensorrt
+onnxruntime-gpu
+ultralytics
+matplotlib
+cuda-python
