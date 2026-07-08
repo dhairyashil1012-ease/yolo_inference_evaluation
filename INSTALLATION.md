@@ -38,7 +38,7 @@ Make a note of the installed CUDA version.
 
 > **Note**
 >
-> If the `nvcc` command is not found, CUDA Toolkit is either not installed or its environment variables have not been configured correctly.
+> If the `nvcc` command is not found, CUDA Toolkit is either not installed or its environment variables have not been configured correctly. Follow Step 6
 
 ---
 
@@ -206,16 +206,88 @@ cannot open shared object file:
 No such file or directory
 ```
 
-This error indicates that the required cuDNN libraries are either missing or incompatible with the installed CUDA Toolkit.
+This indicates that the required cuDNN libraries are either missing or incompatible with the installed CUDA Toolkit.
 
-Install the cuDNN version that matches your installed CUDA Toolkit. The required version can be found in the official ONNX Runtime compatibility documentation.
+### Step 8.1: Determine the Required cuDNN Version
 
-After installing cuDNN, verify the available execution providers again:
+Before installing cuDNN, refer to the official ONNX Runtime compatibility table to identify the cuDNN version compatible with your installed CUDA Toolkit.
 
-```python
+ONNX Runtime Compatibility Documentation:
+
+https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements
+
+---
+
+### Step 8.2: Download cuDNN
+
+Download the appropriate cuDNN package from the official NVIDIA website:
+
+https://developer.nvidia.com/cudnn-downloads
+
+Select the cuDNN version that matches your installed CUDA Toolkit.
+
+---
+
+### Step 8.3: Install cuDNN
+
+If you downloaded the Debian (`.deb`) package, install it using:
+
+```bash id="7zbb8y"
+sudo dpkg -i cudnn-local-repo-*.deb
+```
+
+Copy the repository key:
+
+```bash id="mbtckc"
+sudo cp /var/cudnn-local-repo-*/cudnn-*-keyring.gpg /usr/share/keyrings/
+```
+
+Update the package index:
+
+```bash id="jlwmgn"
+sudo apt update
+```
+
+Install cuDNN:
+
+```bash id="vh2t4y"
+sudo apt install cudnn
+```
+
+---
+
+### Step 8.4: Verify the Installation
+
+Verify that the cuDNN libraries have been installed successfully:
+
+```bash id="q4itke"
+ldconfig -p | grep cudnn
+```
+
+You should see one or more entries similar to:
+
+```text id="m0nkrj"
+libcudnn.so
+libcudnn_adv.so
+libcudnn_ops.so
+```
+
+---
+
+### Step 8.5: Verify ONNX Runtime
+
+After installing cuDNN, verify that ONNX Runtime detects the CUDA Execution Provider:
+
+```python id="bg9khm"
 import onnxruntime as ort
 
 print(ort.get_available_providers())
+```
+
+The expected output is:
+
+```python id="xd0bnx"
+['CUDAExecutionProvider', 'CPUExecutionProvider']
 ```
 
 ---
@@ -238,7 +310,7 @@ Then install the version recommended by the official ONNX Runtime compatibility 
 
 ```bash
 pip install onnxruntime-gpu==<compatible_version> \
---index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-12/pypi/simple/ \
+--index-url https://aiinfra.pkgs.visualstudio.com/PublicPackages/_packaging/onnxruntime-cuda-<compatible_version>/pypi/simple/ \
 --break-system-packages
 ```
 

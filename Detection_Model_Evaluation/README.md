@@ -68,8 +68,8 @@ After executing above code will see that model in your working directory just  m
 
 ```text
 Detection_Model_Evaluation/ 
-            └── Detection_Models/ 
-                            └── yolo26n.pt
+   └── Detection_Models/  
+            └── yolo26n.pt
 
 ```
 
@@ -95,11 +95,11 @@ The COCO dataset configuration is available here:
 
 
 Download the configuration file and place it in:
-
+```text
 Detection_Model_Evaluation/
-└── detection-yaml/
-    └── coco.yaml
-
+    └── detection-yaml/
+                └── coco.yaml
+```
 
 
 

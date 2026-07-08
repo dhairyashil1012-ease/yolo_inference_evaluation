@@ -116,7 +116,7 @@ After exporting the ONNX model, generate the TensorRT engine using the `trtexec`
 Open a terminal in Ubuntu, navigate to the **Sem_Models** directory, and ensure that the ONNX model filename matches the command below.
 
 ```bash
-cd Segmentation_Model_Evaluation/Sem_Models
+cd Semantic_Segmentation_Model_Evaluation/Sem_Models
 
 trtexec \
 --onnx=yolo26n-sem.onnx \
