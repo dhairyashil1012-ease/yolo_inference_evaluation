@@ -1,6 +1,6 @@
 # YOLO Inference Benchmark & Evaluation Pipeline
 
-This repository demonstrates the complete inference and benchmarking pipeline for pretrained YOLO models across **Image Classification**, **Object Detection**, and **Semantic Segmentation** tasks.
+This repository demonstrates the complete inference and benchmarking pipeline for pretrained YOLO model across **Image Classification**, **Object Detection**, and **Semantic Segmentation** tasks.
 
 Each notebook walks through the entire workflow, including:
 
@@ -18,7 +18,7 @@ The workflow covers:
 - **Model Inference** – Executing inference using PyTorch, ONNX Runtime, and TensorRT
 - **Postprocessing** – Processing model outputs into final predictions
 
-The primary objective of this repository is to understand both the **deployment workflow** and the **performance differences** between `.pt`, `.onnx`, and `.engine` models while maintaining identical prediction outputs.
+The primary objective of this repository is to understand **performance differences** between `.pt`, `.onnx`, and `.engine` models while maintaining identical prediction outputs.
 
 > **Note**
 > This repository is designed and tested for **GPU-enabled systems**. CUDA-compatible NVIDIA GPUs are required to run the notebooks and benchmark `.pt`, `.onnx`, and `.engine` models.
@@ -35,34 +35,34 @@ YOLO_Inference_Benchmark_Evaluation/
 ├── requirements.txt
 ├── INSTALLATION.md               # Common installation guide
 │
-├── Images-20260702T141014Z-3-001/
-│   └── Images/
 │
 ├── Classification_Model_Evaluation/
 │   ├── README.md                 # Classification-specific guide
 │   ├── Classification_Model_Evaluation.ipynb
 │   ├── Classification_Models/
-│   └── cls-yaml/
+│   ├── cls-yaml/
+│   └── Images/
 │
 ├── Detection_Model_Evaluation/
 │   ├── README.md                 # Detection-specific guide
 │   ├── Detection_Model_Evaluation.ipynb
 │   ├── Detection_Models/
-│   └── detection-yaml/
+│   ├── detection-yaml/
+│   └── Images/
 │
 └── Semantic_Segmentation_Model_Evaluation/
     ├── README.md                 # Segmentation-specific guide
     ├── Semantic_Segmentation_Model_Evaluation.ipynb
     ├── Sem_Models/
-    └── sem-yaml/
+    ├── sem-yaml/
+    └── Images/
 ```
 
 ### Directory Overview
 
-- **Classification_Model_Evaluation/** – Notebook, models, and configuration files for image classification.
-- **Detection_Model_Evaluation/** – Notebook, models, and configuration files for object detection.
-- **Semantic_Segmentation_Model_Evaluation/** – Notebook, models, and configuration files for semantic segmentation.
-- **Images-20260702T141014Z-3-001/Images/** – Sample input images used for inference.
+- **Classification_Model_Evaluation/** – Notebook, models, Images and configuration files for image classification.
+- **Detection_Model_Evaluation/** – Notebook, models,  Images and configuration files for object detection.
+- **Semantic_Segmentation_Model_Evaluation/** – Notebook, models,Images and configuration files for semantic segmentation.
 - **requirements.txt** – Python package dependencies.
 - **README.md** – Project documentation.
 # Prerequisites
@@ -96,6 +96,13 @@ Install all required packages.
 pip install -r requirements.txt
 ```
 
+If you get any error like "error: externally-managed-environment" execute below command
+```bash
+pip install -r requirements.txt --break-system-packages
+```
+
+
+
 run this command on you cli
 ```bash
 jupyter-notebook
@@ -110,6 +117,8 @@ jupyter-notebook
 | Object Detection      | `Detection_Model_Evaluation.ipynb`             |
 | Semantic Segmentation | `Semantic_Segmentation_Model_Evaluation.ipynb` |
 
+
+**NoteBook Execution** :- Go Each Notebook Directory in Repo. Every Notebook dir. contains separate Readme . Which help to execute each notebook.
 
 ## Supported Model Formats
 

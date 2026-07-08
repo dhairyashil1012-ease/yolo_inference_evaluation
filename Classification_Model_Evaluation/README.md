@@ -74,6 +74,18 @@ Classification_Model_Evaluation/
 
 If you use a different model, update the model path/name in the notebook accordingly .
 
+
+
+
+---
+## Sample Input Images
+
+Sample images used in this repository can be downloaded from the following Google Drive folder:
+
+🔗 **[Google Drive – Sample Input Images](https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS)**
+
+You may also use your own images for inference.
+
 ---
 
 ## ImageNet Labels
@@ -83,9 +95,10 @@ Ultralytics automatically maps the predicted class index to its corresponding Im
 So for 1st phase that not require but for 2nd and 3rd phase that requires to you 
 
 
-The ImageNet label configuration is available here:
+The official ImageNet dataset configuration is available here:
 
-```https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml```
+**[ImageNet.yaml](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml)**
+
 
 This YAML file contains all ImageNet class labels used by Ultralytics for classification models.
 
@@ -130,7 +143,7 @@ After exporting the ONNX model, generate the TensorRT engine using the `trtexec`
 Open a terminal in Ubuntu, navigate to the **Classification_Models** directory, and ensure that the ONNX model filename matches the command below.
 
 ```bash
-cd Classification_Model_Evaluation/Classification_Models
+cd Classification_Model_Evaluation/'Classification _Models'
 
 trtexec \
 --onnx=yolo26n-cls.onnx \
