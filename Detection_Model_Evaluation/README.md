@@ -78,7 +78,7 @@ If you use a different model, update the model path/name in the notebook accordi
 ---
 ## Images Sample Input :
 Refere This Drive Link Where Sample Images are present or You can use yours 
-```https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS```
+🔗 **[Google Drive – Sample Input Images](https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS)**
 
 ---
 
@@ -90,7 +90,8 @@ The COCO configuration is not required for Phase 1, but it is required for Phase
 
 The COCO dataset configuration is available here:
 
-```https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/ImageNet.yaml```
+**[ImageNet.yaml](https://github.com/ultralytics/ultralytics/blob/main/ultralytics/cfg/datasets/coco.yaml)**
+
 
 
 Download the configuration file and place it in:
@@ -101,9 +102,17 @@ Detection_Model_Evaluation/
 
 
 
+
+
+
+
+
 > **Troubleshooting**
 >
 > If you encounter any issues while running the **ONNX Runtime** model or generating/running the **TensorRT engine**, refer to **INSTALLATION.md**. It includes the required CUDA, cuDNN, TensorRT, ONNX Runtime GPU setup, version compatibility, and solutions to common installation and runtime issues.
+
+
+
 ---
 
 # Phase 2 – ONNX Runtime Inference

@@ -101,7 +101,7 @@ The notebook demonstrates:
 ---
 ## Images Sample Input :
 Refere This Drive Link Where Sample Images are present or You can use yours 
-```https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS```
+🔗 **[Google Drive – Sample Input Images](https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS)**
 
 ---
 
