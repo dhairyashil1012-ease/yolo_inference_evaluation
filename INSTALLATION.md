@@ -76,7 +76,7 @@ pip install onnxruntime-gpu==1.19.2 \
 --break-system-packages
 ```
 
-Replace **`1.19.2`** with the version compatible with your installed CUDA Toolkit and change also sencond like with your cuda version . But problem is this version requires matching cuda version as well.
+Replace **`1.19.2`** with the version compatible with your installed CUDA Toolkit and change also second things you need to change is your cuda version . But problem is this version requires matching cuda version as well.
 
 ---
 
@@ -289,7 +289,7 @@ The expected output is:
 ```python id="xd0bnx"
 ['CUDAExecutionProvider', 'CPUExecutionProvider']
 ```
-
+If `CUDAExecutionProvider` Is Still  Available You Can Go And execute the steps present in Notebook for phase 2
 ---
 
 ## Step 9: If `CUDAExecutionProvider` Is Still Not Available
