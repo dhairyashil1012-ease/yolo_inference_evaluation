@@ -46,9 +46,9 @@ Make a note of the installed CUDA version.
 
 ONNX Runtime GPU supports only specific CUDA Toolkit versions. **Do not assume that the latest ONNX Runtime release is compatible with your installed CUDA version.**
 
-Refer to the official ONNX Runtime compatibility table:
+Refer to the official **ONNX Runtime CUDA Execution Provider** compatibility table:
 
-```https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements```
+**[ONNX Runtime CUDA Compatibility Table](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements)**
 
 Locate your installed CUDA Toolkit version and identify the corresponding supported **onnxruntime-gpu** release.
 
@@ -117,9 +117,9 @@ sudo apt-get autoremove
 
 ### 2. Download a Compatible CUDA Toolkit
 
-Download the required CUDA Toolkit version from the NVIDIA CUDA Toolkit Archive:
+Download the required CUDA Toolkit version from the **NVIDIA CUDA Toolkit Archive**:
 
-```https://developer.nvidia.com/cuda-toolkit-archive```
+**[NVIDIA CUDA Toolkit Archive](https://developer.nvidia.com/cuda-toolkit-archive)**
 
 ### 3. Install the Compatible CUDA Version
 
@@ -214,7 +214,7 @@ Before installing cuDNN, refer to the official ONNX Runtime compatibility table 
 
 ONNX Runtime Compatibility Documentation:
 
-https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements
+**[ONNX Runtime CUDA Execution Provider Requirements](https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requirements)**
 
 ---
 
@@ -222,7 +222,7 @@ https://onnxruntime.ai/docs/execution-providers/CUDA-ExecutionProvider.html#requ
 
 Download the appropriate cuDNN package from the official NVIDIA website:
 
-https://developer.nvidia.com/cudnn-downloads
+**[NVIDIA cuDNN Downloads](https://developer.nvidia.com/cudnn-downloads)**
 
 Select the cuDNN version that matches your installed CUDA Toolkit.
 
@@ -495,7 +495,7 @@ Download the TensorRT package that matches your:
 
 Official NVIDIA Download Page:
 
-```https://developer.nvidia.com/tensorrt/download/11x```
+**[NVIDIA TensorRT Downloads](https://developer.nvidia.com/tensorrt/download/11x)**
 
 > **Note**
 >
