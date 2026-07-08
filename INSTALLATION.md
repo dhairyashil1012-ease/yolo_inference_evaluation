@@ -8,8 +8,8 @@ Python package installation is **not** covered in this guide, as all required Py
 >
 > The notebooks in this repository have been developed and tested on **Ubuntu** with an **NVIDIA GPU**. To avoid compatibility issues, follow the installation steps in the order presented and ensure that the installed versions of CUDA, cuDNN, TensorRT, and ONNX Runtime GPU are compatible with each other.
 
-
-
+# TO run onnx runtime on you GPU using CUDAExecution you need to install versions of CUDA, cuDNN, and ONNX Runtime GPU are compatible
+# Then only you can able to run your onnx model on CUDA
 # ONNX Runtime GPU Installation
 
 This section explains how to install **ONNX Runtime GPU** with the correct **CUDA Toolkit** version.
