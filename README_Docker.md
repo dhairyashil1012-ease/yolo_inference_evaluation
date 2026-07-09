@@ -8,12 +8,13 @@ cd yolo_inference_evaluation
 
 
 
-
-## Step 2: For TensorRT Docker Images
+## Step 2: For TensorRT Docker Images you will get in this website
 
 
 ```https://catalog.ngc.nvidia.com/orgs/nvidia/-/containers/tensorrt/26.05-py3/tags```
-
+```text
+docker pull -----
+```
 
 
 ### For Sample Input Images You can take yours or you can reference below link as well 
@@ -25,8 +26,9 @@ If you install sample images from above link extract this in each Evaluation dir
 
 
 ## Step 3 : Mount Your Dir. and Run Image 
+```bash
 docker run  -it --gpus all -p 8888:8888 -v `pwd`:/workspace -w /workspace nvcr.io/nvidia/nvcr.io/nvidia/tensorrt:26.06-py3 bash
-
+```
 
 
 
