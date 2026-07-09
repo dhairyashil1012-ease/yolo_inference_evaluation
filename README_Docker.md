@@ -1,7 +1,7 @@
 ## Step 1: Clone the Repository
 
 ```bash
-git clone https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
+git clone docker_setup https://github.com/dhairyashil1012-ease/yolo_inference_evaluation.git
 
 cd yolo_inference_evaluation
 ```
