@@ -7,7 +7,7 @@ Follow the steps below to set up the environment and run the evaluation notebook
 Clone the repository and navigate to the project directory.
 
 ```bash
-git clone https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
+git clone -b docker_setup  https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
 
 cd yolo_inference_evaluation
 ```
