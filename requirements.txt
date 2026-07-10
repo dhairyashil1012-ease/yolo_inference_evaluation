@@ -6,6 +6,8 @@ torchvision
 numpy
 Pillow
 tensorrt
-ultralytics
+ultralytics==8.4.75
 matplotlib
 cuda-python
+onnxruntime==1.19.2
+onnx==1.22.0
