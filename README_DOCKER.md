@@ -7,7 +7,7 @@ Follow the steps below to set up the environment and run the evaluation notebook
 Clone the repository and navigate to the project directory.
 
 ```bash
-git clone -b docker_setup  https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
+git clone -b Development_Branch  https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
 
 cd yolo_inference_evaluation
 ```
@@ -24,6 +24,9 @@ Pull the required TensorRT image (replace the tag with the version you want to u
 
 ```bash
 docker pull nvcr.io/nvidia/tensorrt:26.06-py3
+or
+docker pull nvcr.io/nvidia/tensorrt:26.04-py3
+
 ```
 
 ---
