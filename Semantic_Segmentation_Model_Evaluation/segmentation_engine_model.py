@@ -1,42 +1,107 @@
-import time
-import sys
-import cv2
 import os
-import yaml
+import time
+import cv2
 import torch
+import subprocess
 import numpy as np
-from PIL import Image
 from pathlib import Path
+from PIL import Image
+from configparser import ConfigParser
 import tensorrt as trt
-from ultralytics import YOLO
-import matplotlib.pyplot as plt
-from torchvision import transforms
 import torchvision.transforms as transforms
 from cuda.bindings import runtime as cudart
-import shutil
-from zipfile import ZipFile
-import ultralytics
-import onnx
-import onnxruntime as ort
-import time
-from pathlib import Path
 
 
 
-
-MODEL_NAME = "yolo26n-sem.engine"
-INPUT_SIZE = (1024, 2048)
 
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Sem_Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "ENGINE_Output"
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+# ==========================================================
+# PATHS
+# ==========================================================
 
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ENGINE_OUTPUT_DIR"]
+
+# MODEL_NAME = config["PATHS"]["ENGINE_MODEL_NAME"]
+MODEL_NAME = config["PATHS"]["ONNX_MODEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
+
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(MODEL_PATH)
+
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
+
+
+
+# Load ONNX Model
+def load_onnx_model(model_dir):
+    pathlist = Path(model_dir).glob("**/*.onnx")
+    filelist = sorted([str(file) for file in pathlist])
+
+    if len(filelist) == 0:
+        raise FileNotFoundError("No ONNX model found.")
+
+    onnx_model = filelist[-1]
+    # print(f"ONNX Model : {onnx_model}")
+    return onnx_model
+
+
+
+
+
+def export_engine_model(onnx_model_p):
+    os.chdir(MODEL_DIR)
+    subprocess.run([
+        "trtexec",
+        f"--onnx={onnx_model_p}",
+        "--minShapes=images:1x3x1024x2048",
+        "--optShapes=images:4x3x1024x2048",
+        "--maxShapes=images:16x3x1024x2048",
+        "--saveEngine=yolo26n-sem.engine"
+    ], check=True)
+
+    print("\nTensorRT engine export completed successfully.")
+    time.sleep(1)
+
+
+
+
+def load_engine_model(model_dir):
+    pathlist = Path(model_dir).glob("**/*.engine")
+    filelist = sorted([str(file) for file in pathlist])
+
+    if len(filelist) == 0:
+        raise FileNotFoundError("No engine model found.")
+
+    engine_model = filelist[-1]
+    print(f"engine Model : {engine_model}")
+    return engine_model
+
+
+
 
 
 # Check Function for Checking error logs
@@ -57,7 +122,7 @@ def preprocess_engine(image_folder,input_size):
 
     input_size = input_size
 
-    transform = transforms.Compose([transforms.Resize(size=input_size),transforms.ToTensor()])
+    transform = transforms.Compose([transforms.Resize(input_size),transforms.ToTensor(),])
 
     # Read image filenames
     image_files = sorted([
@@ -101,8 +166,11 @@ def inference_engine(batch_numpy,engine_model):
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
 
+    if engine is None:
+        raise RuntimeError("Failed to deserialize TensorRT engine.")
+
     context = engine.create_execution_context()
-    
+
     input_name = engine.get_tensor_name(0)
     
     output_name = engine.get_tensor_name(1)
@@ -145,7 +213,10 @@ def inference_engine(batch_numpy,engine_model):
     context.set_tensor_address(output_name, int(d_output))
 
     # TensorRT inference
-    context.execute_async_v3(stream)
+    success = context.execute_async_v3(stream)
+
+    if not success:
+        raise RuntimeError("TensorRT inference failed.")
 
     # Device -> Host
     check_cuda(
@@ -190,7 +261,7 @@ def inference_engine(batch_numpy,engine_model):
 
 
 
-def postprocess_onnx(outputs,image_files,image_folder):
+def postprocess_engine(outputs,image_files,image_folder):
 
  
     for img_idx, image_name in enumerate(image_files):
@@ -198,6 +269,9 @@ def postprocess_onnx(outputs,image_files,image_folder):
         image_path = os.path.join(image_folder, image_name)
 
         image = cv2.imread(image_path)
+        if image is None:
+            print(f"Unable to read {image_path}")
+            continue
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         H, W = image.shape[:2]
@@ -231,25 +305,51 @@ def postprocess_onnx(outputs,image_files,image_folder):
 
         print(f"Saved : {save_path}")
 
-        print("\nAll output images saved successfully.")
+    print("\nAll output images saved successfully.")
     
-        # Display
-        # plt.figure(figsize=(14,5))
-        # plt.imshow(blended)
-        # plt.axis("off")
-        # plt.title(image_name)
-        # plt.show()
-        
+    
+
+
+
+
 def main():
-    # Preprocess
-    batch_numpy, image_files = preprocess_engine(IMAGE_DIR,INPUT_SIZE)
 
-    # Inference
-    predictions= inference_engine(batch_numpy,MODEL_PATH)
+    try :
+        engine_model_path=load_engine_model(MODEL_DIR)
+        print(f"Using Existing Engine :{engine_model_path}")
+    
+    except FileNotFoundError:
+        print("No TensorRT engine found. Exporting from ONNX...")
 
-    # Postprocess
-    postprocess_onnx(predictions,image_files,IMAGE_DIR)
+        # Load ONNX model
+        onnx_model_path = load_onnx_model(MODEL_DIR)
+
+        # Export TensorRT engine
+        export_engine_model(onnx_model_path)
+
+        # Load newly created engine
+        engine_model_path = load_engine_model(MODEL_DIR)
+        print(f"Using newly created engine: {engine_model_path}")
+
+
+    batch_numpy, image_files = preprocess_engine(
+        image_folder=IMAGE_DIR,
+        input_size=INPUT_SIZE,
+    )
+
+    predictions = inference_engine(
+        batch_numpy=batch_numpy,
+        engine_model=engine_model_path,
+    )
+
+    postprocess_engine(
+        outputs=predictions,
+        image_files=image_files,
+        image_folder=IMAGE_DIR,
+    )
+
 
 if __name__ == "__main__":
     main()
+
 

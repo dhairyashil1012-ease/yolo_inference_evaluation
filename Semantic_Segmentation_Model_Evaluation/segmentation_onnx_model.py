@@ -1,78 +1,91 @@
-import time
-import sys
-import cv2
 import os
+import time
 import yaml
+import cv2
 import torch
 import numpy as np
+
+from pathlib import Path
 from PIL import Image
-from pathlib import Path
-import tensorrt as trt
+from configparser import ConfigParser
+
 from ultralytics import YOLO
-import matplotlib.pyplot as plt
-from torchvision import transforms
-import torchvision.transforms as transforms
-from cuda.bindings import runtime as cudart
-import shutil
-from zipfile import ZipFile
-import ultralytics
-import onnx
 import onnxruntime as ort
-import time
-from pathlib import Path
+import torchvision.transforms as transforms
 
 
-
-
-MODEL_NAME = "yolo26n-sem.pt"
-INPUT_SIZE = (1024, 2048)
 
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Sem_Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "ONNX_Output"
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
 
+
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ONNX_OUTPUT_DIR"]
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
+
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+
+
 
 
 # Load .pt Model
 def load_model(model_path):
 
-    device = torch.device("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print(f"Running on : {device}")
 
     model = YOLO(model_path)
-
     model.to(device)
 
     return model
 
 
 # Export .pt Model To ONNX Model
-def export_onnx_model(model):   
+def export_onnx_model(model):
 
-    model.export(format="onnx",imgsz=(1024, 2048),batch=16,dynamic=True,device="cuda",simplify=False,opset=18)
+    model.export(
+        format="onnx",
+        imgsz=INPUT_SIZE,
+        batch=config.getint("MODEL", "ONNX_EXPORT_BATCH"),
+        dynamic=True,
+        device=0 if torch.cuda.is_available() else "cpu",
+        simplify=False,
+        opset=18,
+    )
+
     print("\nONNX export completed successfully.")
     time.sleep(1)
 
 
 
 # Load ONNX Model
-def load_onnx_model(MODEL_DIR):
+def load_onnx_model(model_dir):
 
-    pathlist = Path(MODEL_DIR).glob('**/*.onnx')
+    filelist = sorted(Path(model_dir).glob("*.onnx"))
 
-    filelist = sorted( [str(file) for file in pathlist] )
+    if len(filelist) == 0:
+        raise FileNotFoundError("No ONNX model found.")
 
-    for file in filelist:
-        print( file )
-    
-    return file
+    onnx_model = str(filelist[-1])
 
+    print(f"ONNX Model : {onnx_model}")
+
+    return onnx_model
 
 
 
@@ -85,6 +98,9 @@ def preprocess_onnx(folder_path):
     image_files = sorted([file
                           for file in os.listdir(folder_path)
                           if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
+    
+    if len(image_files) == 0:
+        raise ValueError("No images found.")
 
     image_list = []
 
@@ -129,6 +145,8 @@ def inference_onnx(onnx_model, batch_numpy):
     # This configuration forces strict provider matching
     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider','CPUExecutionProvider'], sess_options=opts)
 
+    print("Execution Provider :", session.get_providers()[0])
+
     input_name = session.get_inputs()[0].name
 
     start = time.perf_counter()
@@ -167,8 +185,12 @@ def postprocess_onnx(outputs,image_files,image_folder):
         image_path = os.path.join(image_folder, image_name)
 
         image = cv2.imread(image_path)
-        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
+        if image is None:
+            print(f"Unable to read {image_path}")
+            continue
+
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         H, W = image.shape[:2]
 
         detections = outputs[img_idx]
@@ -200,31 +222,38 @@ def postprocess_onnx(outputs,image_files,image_folder):
 
         print(f"Saved : {save_path}")
 
-        print("\nAll output images saved successfully.")
-    
-        # # Display
-        # plt.figure(figsize=(14,5))
-        # plt.imshow(blended)
-        # plt.title(image_name)
-        # plt.axis("off")
-        # plt.show()
+    print("\nAll output images saved successfully.")
+
         
 
 
 
 def main():
+    try :
+        onnx_model_path=load_onnx_model(MODEL_DIR)
 
-    model=load_model(MODEL_PATH)
+    except FileNotFoundError:
 
-    export_onnx_model(model)
+        model = load_model(MODEL_PATH)
 
-    onnx_model_path=load_onnx_model(MODEL_DIR)
+        export_onnx_model(model)
 
-    batch_numpy, image_files = preprocess_onnx(IMAGE_DIR)
+        onnx_model_path = load_onnx_model(MODEL_DIR)
 
-    predictions,inference_time = inference_onnx(onnx_model_path,batch_numpy)
+    batch_numpy, image_files = preprocess_onnx(
+        folder_path=IMAGE_DIR,
+    )
 
-    postprocess_onnx(predictions,image_files,IMAGE_DIR )
+    predictions, inference_time = inference_onnx(
+        onnx_model=onnx_model_path,
+        batch_numpy=batch_numpy,
+    )
+
+    postprocess_onnx(
+        outputs=predictions,
+        image_files=image_files,
+        image_folder=IMAGE_DIR,
+    )
 
 if __name__ == "__main__":
     main()

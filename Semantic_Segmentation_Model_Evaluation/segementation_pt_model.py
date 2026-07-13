@@ -1,41 +1,68 @@
-
-
 import os
 import time
-import shutil
-from pathlib import Path
-
 import cv2
 import torch
+from pathlib import Path
+from configparser import ConfigParser
 from ultralytics import YOLO
 
 
-MODEL_NAME = "yolo26n-sem.pt"
-INPUT_SIZE = (1024, 2048)
 
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Sem_Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "PT_Output"
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["PT_OUTPUT_DIR"]
 
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
+
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
+
+
 
 
 def setup_model():
 
-    source_model = PROJECT_DIR / MODEL_NAME
+    if MODEL_PATH.exists():
+        print(f"Using existing model : {MODEL_PATH}")
+        return
 
-    if source_model.exists() and not MODEL_PATH.exists():
-        shutil.move(str(source_model), str(MODEL_PATH))
+    print(f"Model not found. Downloading {MODEL_NAME}...")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+    # Download model
+    YOLO(MODEL_NAME)
 
-    print(f"Using Model : {MODEL_PATH}")
+    downloaded_model = PROJECT_DIR / MODEL_NAME
+
+    if not downloaded_model.exists():
+        raise FileNotFoundError(f"Failed to download {MODEL_NAME}")
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    downloaded_model.replace(MODEL_PATH)
+
+    print(f"Model saved to : {MODEL_PATH}") 
 
 
 # ==========================================================
@@ -84,18 +111,19 @@ def preprocess(folder_path):
 
 def inference(model, folder_path):
 
-    torch.cuda.synchronize()
-
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
     start = time.perf_counter()
 
     results = model.predict(
         source=str(folder_path),
         imgsz=INPUT_SIZE,
-        device=0,
+        device = 0 if torch.cuda.is_available() else "cpu",
         verbose=False
     )
 
-    torch.cuda.synchronize()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
 
     end = time.perf_counter()
 
@@ -118,10 +146,10 @@ def inference(model, folder_path):
 
 # Save Results
 
-def save_results(results):
+def postprocess(results):
 
-    print("\n" + "=" * 60)
-    print("SAVING RESULTS")
+    print("=" * 60)
+    print("POSTPROCESS")
     print("=" * 60)
 
     for result in results:
@@ -152,8 +180,7 @@ def main():
 
     results = inference(model, IMAGE_DIR)
 
-    save_results(results)
-
+    postprocess(results)   
 
 if __name__ == "__main__":
     main()
