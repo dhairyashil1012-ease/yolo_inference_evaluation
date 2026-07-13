@@ -1,49 +1,102 @@
-# YOLO Inference Evaluation Setup Guide
+# YOLO Inference Benchmark & Evaluation Pipeline
 
-Follow the steps below to set up the environment and run the evaluation notebooks.
+This repository demonstrates inference and benchmarking of pretrained **YOLO** models for the following computer vision tasks:
 
-## Step 1: Clone the Repository
+* Image Classification
+* Object Detection
+* Semantic Segmentation
 
-Clone the repository and navigate to the project directory.
+Each task provides separate Python scripts for running inference using three different model formats:
+
+* **YOLO (.pt)** – Ultralytics (PyTorch)
+* **ONNX (.onnx)** – ONNX Runtime
+* **TensorRT (.engine)** – TensorRT
+
+The objective is to compare inference performance while maintaining consistent prediction outputs across all supported model formats.
+
+> **Note**
+>
+> This project is designed for **GPU-enabled systems** and requires an NVIDIA GPU with CUDA support.
+
+---
+
+# Project Structure
+
+```text
+yolo_inference_evaluation/
+│
+├── Dockerfile
+├── README.md
+├── requirements.txt
+├── Images/
+│
+├── Classification_Model_Evaluation/
+│   ├── cls-yaml
+│   ├── classification_pt_model.py
+│   ├── classification_onnx_model.py
+│   ├── classification_engine_model.py
+│   ├── Classification_Models/
+│   ├── config.txt
+│   └── README.md
+│
+├── Detection_Model_Evaluation/
+│   ├── detection-yaml
+│   ├── detection_pt_model.py
+│   ├── detection_onnx_model.py
+│   ├── detection_engine_model.py
+│   ├── Detection_Models/
+│   ├── config.txt
+│   └── README.md
+│
+└── Semantic_Segmentation_Model_Evaluation/
+    ├── segmentation_pt_model.py
+    ├── segmentation_onnx_model.py
+    ├── segmentation_engine_model.py
+    ├── config.txt
+    └── README.md
+```
+
+Each task directory contains:
+
+* Python scripts for `.pt`, `.onnx`, and `.engine` inference
+* Model files
+* Configuration file
+* Task-specific README
+
+---
+
+# Prerequisites
+
+* Docker
+* NVIDIA GPU
+* NVIDIA Driver
+* NVIDIA Container Toolkit
+
+---
+
+# Getting Started
+
+## 1. Clone the Repository
+
+Clone the **Development_Branch_V3** branch.
 
 ```bash
-git clone -b Development_Branch  https://github.com/dhairyashil1012-ease/yolo_inference_evaluation
+git clone -b Development_Branch_V3 https://github.com/dhairyashil1012-ease/yolo_inference_evaluation.git
 
 cd yolo_inference_evaluation
 ```
 
 ---
 
-## Step 2: Download the TensorRT Docker Image
-
-TensorRT Docker images are available from the NVIDIA NGC Catalog:
-
-https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt/tags
-
-Pull the required TensorRT image (replace the tag with the version you want to use).
+## 2. Build the Docker Image
 
 ```bash
-docker pull nvcr.io/nvidia/tensorrt:26.06-py3
-or
-docker pull nvcr.io/nvidia/tensorrt:26.04-py3
-
+docker build -t yolo_inference_evaluation .
 ```
 
 ---
 
-## Step 3: (Optional) Download Sample Input Images
-
-You can use your own images for evaluation or download the sample images from the following Google Drive folder:
-
-https://drive.google.com/drive/folders/1MuNF6ytZHTcroBpnlwIUoWkaxl0oTTOS
-
-After downloading, extract the images into the appropriate evaluation directory corresponding to your use case.
-
----
-
-## Step 4: Launch the TensorRT Docker Container
-
-Mount the project directory inside the container and start an interactive TensorRT environment.
+## 3. Start the Docker Container
 
 ```bash
 docker run -it \
@@ -51,50 +104,118 @@ docker run -it \
     -p 8888:8888 \
     -v `pwd`:/workspace \
     -w /workspace \
-    nvcr.io/nvidia/tensorrt:26.06-py3 \
+    yolo_inference_evaluation:latest \
     bash
 ```
 
 ---
 
-## Step 5: Install Python Dependencies
+# Running the Code
 
-Install all the required Python packages.
+Navigate to the required task directory.
+
+## Image Classification
 
 ```bash
-pip install -r requirements.txt
+cd Classification_Model_Evaluation
+```
+
+Run any of the following:
+
+```bash
+python3 classification_pt_model.py
+```
+
+```bash
+python3 classification_onnx_model.py
+```
+
+```bash
+python3 classification_engine_model.py
 ```
 
 ---
 
-## Step 6: Install System Dependencies
-
-Install the required system libraries.
+## Object Detection
 
 ```bash
-apt-get update && apt-get install -y libgl1 libglib2.0-0 libsm6  libxext6  libxrender1 libxcb1
+cd Detection_Model_Evaluation
+```
+
+Run:
+
+```bash
+python3 detection_pt_model.py
+```
+
+```bash
+python3 detection_onnx_model.py
+```
+
+```bash
+python3 detection_engine_model.py
 ```
 
 ---
 
-## Step 7: Start Jupyter Notebook
-
-Launch the Jupyter Notebook server inside the Docker container.
+## Semantic Segmentation
 
 ```bash
-jupyter notebook \
-    --port=8888 \
-    --no-browser \
-    --ip=0.0.0.0 \
-    --allow-root
+cd Semantic_Segmentation_Model_Evaluation
 ```
 
-Copy the generated URL from the terminal and open it in your web browser.
+Run:
+
+```bash
+python3 segmentation_pt_model.py
+```
+
+```bash
+python3 segmentation_onnx_model.py
+```
+
+```bash
+python3 segmentation_engine_model.py
+```
 
 ---
 
-## Step 8: Run the Evaluation
+# Supported Tasks
 
-Navigate to the notebook corresponding to your evaluation use case and execute it.
+| Task                  | Supported Model Formats   |
+| --------------------- | ------------------------- |
+| Image Classification  | `.pt`, `.onnx`, `.engine` |
+| Object Detection      | `.pt`, `.onnx`, `.engine` |
+| Semantic Segmentation | `.pt`, `.onnx`, `.engine` |
 
-For additional details, configuration options, and usage instructions, refer to the **README.md** file inside each evaluation directory.
+---
+
+# Workflow
+
+```text
+YOLO (.pt)
+      │
+      ▼
+PyTorch Inference
+      │
+      ▼
+ONNX Runtime (.onnx)
+      │
+      ▼
+TensorRT (.engine)
+```
+
+---
+
+# Repository Goal
+
+This repository provides a simple and modular implementation for benchmarking YOLO models across multiple inference backends.
+
+It enables users to:
+
+* Run inference using PyTorch, ONNX Runtime, and TensorRT
+* Compare inference performance
+* Understand the inference pipeline for each backend
+* Use a Docker-based environment for reproducible execution
+
+Refer to the **README.md** inside each task directory for task-specific details and configuration.
