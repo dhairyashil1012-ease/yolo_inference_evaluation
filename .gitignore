@@ -8,8 +8,8 @@ cuda-repo-ubuntu2404-12-8-local_12.8.2-570.211.01-1_amd64.deb
 
 # Classification
 
-Classification_Model_Evaluation/cls-yaml/*
-!Classification_Model_Evaluation/cls-yaml/.gitkeep
+# Classification_Model_Evaluation/cls-yaml/*
+# !Classification_Model_Evaluation/cls-yaml/.gitkeep
 
 Classification_Model_Evaluation/Classification _Models/*
 !Classification_Model_Evaluation/Classification _Models/.gitkeep
@@ -26,8 +26,8 @@ Classification_Model_Evaluation/Images
 Detection_Model_Evaluation/Detection_Models/*
 !Detection_Model_Evaluation/Detection_Models/.gitkeep
 
-Detection_Model_Evaluation/detection-yaml/*
-!Detection_Model_Evaluation/detection-yaml/.gitkeep
+# Detection_Model_Evaluation/detection-yaml/*
+# !Detection_Model_Evaluation/detection-yaml/.gitkeep
 
 Detection_Model_Evaluation/Images-20260702T141014Z-3-001/*
 !Detection_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
@@ -46,8 +46,8 @@ Semantic_Segmentation_Model_Evaluation/ONNX_Output
 Semantic_Segmentation_Model_Evaluation/PT_Output
 Semantic_Segmentation_Model_Evaluation/Segmentation_Model_Evaluation.ipynb
 
-Semantic_Segmentation_Model_Evaluation/sem-yaml/*
-!Semantic_Segmentation_Model_Evaluation/sem-yaml/.gitkeep
+# Semantic_Segmentation_Model_Evaluation/sem-yaml/*
+# !Semantic_Segmentation_Model_Evaluation/sem-yaml/.gitkeep
 
 Semantic_Segmentation_Model_Evaluation/Images-20260702T141014Z-3-001/*
 !Semantic_Segmentation_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
