@@ -89,6 +89,9 @@ def load_model(model_path):
 
     return model
 
+model_name=load_model(MODEL_PATH)
+print(f"IMAGE_PATH: {IMAGE_DIR}")
+
 # Preprocess
 
 def preprocess(folder_path):

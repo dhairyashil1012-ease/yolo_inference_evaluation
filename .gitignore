@@ -11,8 +11,8 @@ cuda-repo-ubuntu2404-12-8-local_12.8.2-570.211.01-1_amd64.deb
 # Classification_Model_Evaluation/cls-yaml/*
 # !Classification_Model_Evaluation/cls-yaml/.gitkeep
 
-Classification_Model_Evaluation/Classification _Models/*
-!Classification_Model_Evaluation/Classification _Models/.gitkeep
+Classification_Model_Evaluation/Classification_Models/*
+!Classification_Model_Evaluation/Classification_Models/.gitkeep
 Classification_Model_Evaluation/ONNX_Output
 Classification_Model_Evaluation/ENGINE_Output
 Classification_Model_Evaluation/PT_Output
