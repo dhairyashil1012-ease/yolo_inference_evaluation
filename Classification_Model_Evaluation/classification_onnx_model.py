@@ -1,92 +1,112 @@
-import time
-import sys
-import cv2
 import os
-import yaml
+import time
+import cv2
 import torch
 import numpy as np
+from pathlib import Path
 from PIL import Image
-from pathlib import Path
-import tensorrt as trt
+from configparser import ConfigParser
 from ultralytics import YOLO
-import matplotlib.pyplot as plt
-from torchvision import transforms
-import torchvision.transforms as transforms
-from cuda.bindings import runtime as cudart
-import shutil
-from zipfile import ZipFile
-import ultralytics
-import onnx
 import onnxruntime as ort
-import time
-from pathlib import Path
+import torchvision.transforms as transforms
 
-
-
-
-MODEL_NAME = "yolo26n-cls.pt"
-INPUT_SIZE = (224, 224)
-YAML_NAME  = "ImageNet.yaml"
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Classification _Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "ONNX_Output"
-YAML_DIR = PROJECT_DIR / "cls-yaml"
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
+
+# ==========================================================
+# PATHS
+# ==========================================================
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ONNX_OUTPUT_DIR"]
+YAML_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
+
+# MODEL_NAME = config["PATHS"]["ONNX_MODEL_NAME"]
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
+# CHANGED: Read from the generated label.txt inside the cls-yaml directory instead of the yaml file
+LABEL_NAME = "label.txt" 
 
 MODEL_PATH = MODEL_DIR / MODEL_NAME
-YAML_PATH = YAML_DIR / YAML_NAME
+LABEL_PATH = YAML_DIR / LABEL_NAME
+
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+YAML_DIR.mkdir(parents=True, exist_ok=True)
+
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(MODEL_PATH)
+
+if not LABEL_PATH.exists():
+    raise FileNotFoundError(LABEL_PATH)
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"Label Path : {LABEL_PATH}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
 
 
+# Load ONNX Model
+def load_onnx_model(model_dir):
+    pathlist = Path(model_dir).glob("**/*.onnx")
+    filelist = sorted([str(file) for file in pathlist])
 
-# Load .pt Model
-def load_model(model_path):
+    if len(filelist) == 0:
+        raise FileNotFoundError("No ONNX model found.")
 
-    device = torch.device("cuda")
-
-
-    model = YOLO(model_path)
-
-    model.to(device)
-
-    return model
+    onnx_model = filelist[-1]
+    print(f"ONNX Model : {onnx_model}")
+    return onnx_model
 
 
 def export_onnx_model(model):   
-
-    model.export(format="onnx",imgsz=(224,224),batch=16,dynamic=True,device="cuda")
+    model.export(
+        format="onnx",
+        imgsz=INPUT_SIZE,
+        batch=config.getint("MODEL", "ONNX_EXPORT_BATCH"),
+        dynamic=True,
+        device="cuda" if torch.cuda.is_available() else "cpu",
+    )
     print("\nONNX export completed successfully.")
     time.sleep(1)
 
 
+# Load PyTorch/YOLO Model
+def load_model(model_path):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    print(f"Running on : {device}")
 
-# Load ONNX Model
-def load_onnx_model(MODEL_DIR):
-
-    pathlist = Path(MODEL_DIR).glob('**/*.onnx')
-
-    filelist = sorted( [str(file) for file in pathlist] )
-
-    for file in filelist:
-        print( file )
-    
-    return file
-
-
-
+    model = YOLO(model_path)
+    model.to(device)
+    return model
 
 
 # Preprocess Phase 
 def preprocess_onnx(folder_path):
+    transform = transforms.Compose([
+        transforms.Resize(INPUT_SIZE),
+        transforms.ToTensor(),
+    ])
 
-    transform = transforms.Compose([transforms.Resize(INPUT_SIZE),transforms.ToTensor()])
+    image_files = sorted([
+        file for file in os.listdir(folder_path)
+        if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+    ])
 
-    image_files = sorted([file
-                          for file in os.listdir(folder_path)
-                          if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
-
+    if len(image_files) == 0:
+        raise ValueError("No images found.")
     image_list = []
 
     print("=" * 60)
@@ -94,17 +114,12 @@ def preprocess_onnx(folder_path):
     print("=" * 60)
 
     for file in image_files:
-
         image_path = os.path.join(folder_path, file)
-
         image = Image.open(image_path).convert("RGB")
-
         tensor = transform(image)
-
         image_list.append(tensor)
 
     batch_tensor = torch.stack(image_list)
-
     batch_numpy = batch_tensor.numpy().astype(np.float32)
 
     print("Number of Images :", len(image_files))
@@ -112,35 +127,24 @@ def preprocess_onnx(folder_path):
     print("Input dtype      :", batch_numpy.dtype)
     print()
 
-
     return batch_numpy, image_files
-
-
-
-
 
 
 # Inference Phase
 def inference_onnx(onnx_model, batch_numpy):
     opts = ort.SessionOptions()
-
-    # Force ONNX Runtime to raise an exception if an op cannot run on the requested ExecutionProvider
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
 
-    # This configuration forces strict provider matching
     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider','CPUExecutionProvider'], sess_options=opts)
-
+    print("Execution Provider :", session.get_providers()[0])
+    
     input_name = session.get_inputs()[0].name
 
     start = time.perf_counter()
-
-    outputs = session.run(None,{input_name: batch_numpy})
-
+    outputs = session.run(None, {input_name: batch_numpy})
     end = time.perf_counter()
 
-    # inference_time = (end - start) * 1000
     inference_time = (end - start)
-
     batch_size = batch_numpy.shape[0]
 
     print("=" * 60)
@@ -154,39 +158,36 @@ def inference_onnx(onnx_model, batch_numpy):
     return outputs[0], inference_time
 
 
-
-
-
-
 # Postprocess Phase
-
-def postprocess_onnx(predictions, image_files, folder_path, imagenet_yaml):
+# CHANGED: Replaced imagenet_yaml with txt_label_path parameter
+def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
     print("=" * 60)
     print("POSTPROCESS")
     print("=" * 60)
 
-    # Load YAML file containing class indices and names
-    with open(imagenet_yaml, "r") as f:
-        data = yaml.safe_load(f)
-    class_names = data["names"]
+    # CHANGED: Load class names directly from line-separated label text file instead of YAML parsing
+    with open(txt_label_path, "r", encoding="utf-8") as f:
+        class_names = [line.strip() for line in f if line.strip()]
 
-
-
-    # Extract class IDs and actual probability scores
     class_ids = np.argmax(predictions, axis=1)
     scores = np.max(predictions, axis=1)
 
     for i, file_name in enumerate(image_files):
-
-        # 1. Load image using OpenCV for manipulation and drawing
         img_path = os.path.join(folder_path, file_name)
         image = cv2.imread(img_path)
+        if image is None:
+            print(f"Unable to read {img_path}")
+            continue
 
-        # 2. Match prediction to YAML class mapping
         class_id = int(class_ids[i])
-        class_name = class_names.get(class_id, class_names.get(str(class_id), f"ID_{class_id}"))
-        confidence = scores[i] * 100  # Convert to standard percentage format
-
+        
+        # CHANGED: Map index position cleanly to text element list boundaries
+        if class_id < len(class_names):
+            class_name = class_names[class_id]
+        else:
+            class_name = f"ID_{class_id}"
+            
+        confidence = scores[i] * 100
 
         text = f"{class_name}: {confidence:.1f}%"
         print(f"Image: {file_name} -> {text}")
@@ -206,30 +207,38 @@ def postprocess_onnx(predictions, image_files, folder_path, imagenet_yaml):
 
         cv2.putText(image, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
 
-        # 6. Save target image directly into your configured OUTPUT_DIR
         save_path = OUTPUT_DIR / f"pred_{file_name}"
         cv2.imwrite(str(save_path), image)
         print(f"Saved: {save_path}")
 
 
-        
-
 # Main
 def main():
+    try:
+        onnx_model_path=load_onnx_model(MODEL_DIR)
 
-    model=load_model(MODEL_PATH)
+    except FileNotFoundError:
+            model = load_model(MODEL_PATH)
+            export_onnx_model(model)
+            onnx_model_path = load_onnx_model(MODEL_DIR)
 
-    export_onnx_model(model)
+    batch_numpy, image_files = preprocess_onnx(
+        folder_path=IMAGE_DIR,
+    )
 
-    onnx_model_path=load_onnx_model(MODEL_DIR)
+    predictions, inference_time = inference_onnx(
+        onnx_model=onnx_model_path,
+        batch_numpy=batch_numpy,
+    )
 
-    batch_numpy, image_files = preprocess_onnx(IMAGE_DIR)
-
-    predictions,inference_time = inference_onnx(onnx_model_path,batch_numpy)
-
-    postprocess_onnx(predictions,image_files,IMAGE_DIR,YAML_PATH)
+    # CHANGED: Passing the target label text path setup
+    postprocess_onnx(
+        predictions=predictions,
+        image_files=image_files,
+        folder_path=IMAGE_DIR,
+        txt_label_path=LABEL_PATH,
+    )
 
 
 if __name__ == "__main__":
     main()
-

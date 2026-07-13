@@ -1,50 +1,86 @@
-import time
-import sys
-import cv2
 import os
+import time
 import yaml
+import cv2
 import torch
 import numpy as np
+
+from pathlib import Path
 from PIL import Image
-from pathlib import Path
-import tensorrt as trt
+from configparser import ConfigParser
+
 from ultralytics import YOLO
-import matplotlib.pyplot as plt
-from torchvision import transforms
-import torchvision.transforms as transforms
-from cuda.bindings import runtime as cudart
-import shutil
-from zipfile import ZipFile
-import ultralytics
-import onnx
 import onnxruntime as ort
-import time
-from pathlib import Path
+import torchvision.transforms as transforms
 
 
 
-
-MODEL_NAME = "yolo26n.pt"
-INPUT_SIZE = (640, 640)
-YAML_NAME  = "coco.yaml"
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Detection_Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "ONNX_Output"
-YAML_DIR = PROJECT_DIR / "detection-yaml"
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_PATH = MODEL_DIR / MODEL_NAME
+# ==========================================================
+# PATHS
+# ==========================================================
+
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ONNX_OUTPUT_DIR"]
+YAML_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
+LABEL_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
+
+
+
+YAML_NAME = config["PATHS"]["YAML_NAME"]
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
+LABEL_NAME = config["PATHS"]["LABEL_NAME"]
+
+
 YAML_PATH = YAML_DIR / YAML_NAME
+MODEL_PATH = MODEL_DIR / MODEL_NAME
+LABEL_PATH = LABEL_DIR / LABEL_NAME
 
-print(YAML_PATH)
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+YAML_DIR.mkdir(parents=True, exist_ok=True)
+
+if not MODEL_PATH.exists():
+    raise FileNotFoundError(MODEL_PATH)
+
+if not YAML_PATH.exists():
+    raise FileNotFoundError(YAML_PATH)
+
+if not LABEL_PATH.exists():
+    raise FileNotFoundError(f"Label file not found at: {LABEL_PATH}")
+# print(LABEL_PATH)
+
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"YAML Path  : {YAML_PATH}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
+
+
+
+
 # Load .pt Model
 def load_model(model_path):
 
-    device = torch.device("cuda")
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
+    print(f"Running on : {device}")
 
     model = YOLO(model_path)
 
@@ -53,26 +89,35 @@ def load_model(model_path):
     return model
 
 
+
+
+
 # Export .pt Model To ONNX Model
 def export_onnx_model(model):   
 
-    model.export(format="onnx",imgsz=640,batch=16,dynamic=True,device="cuda")
+    model.export(
+        format="onnx",
+        imgsz=INPUT_SIZE,
+        batch=config.getint("MODEL", "ONNX_EXPORT_BATCH"),
+        dynamic=True,
+        device="cuda",
+    )
     print("\nONNX export completed successfully.")
     time.sleep(1)
 
 
 
 # Load ONNX Model
-def load_onnx_model(MODEL_DIR):
+def load_onnx_model(model_dir):
+    pathlist = Path(model_dir).glob("**/*.onnx")
+    filelist = sorted([str(file) for file in pathlist])
 
-    pathlist = Path(MODEL_DIR).glob('**/*.onnx')
+    if len(filelist) == 0:
+        raise FileNotFoundError("No ONNX model found.")
 
-    filelist = sorted( [str(file) for file in pathlist] )
-
-    for file in filelist:
-        print( file )
-    
-    return file
+    onnx_model = filelist[-1]
+    print(f"ONNX Model : {onnx_model}")
+    return onnx_model
 
 
 
@@ -81,11 +126,18 @@ def load_onnx_model(MODEL_DIR):
 # Preprocess Phase 
 def preprocess_onnx(folder_path):
 
-    transform = transforms.Compose([transforms.Resize(INPUT_SIZE),transforms.ToTensor()])
+    transform = transforms.Compose(
+    [
+        transforms.Resize(INPUT_SIZE),
+        transforms.ToTensor(),
+    ])
 
     image_files = sorted([file
                           for file in os.listdir(folder_path)
                           if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
+    
+    if len(image_files) == 0:
+        raise ValueError("No images found.")
 
     image_list = []
 
@@ -129,6 +181,7 @@ def inference_onnx(onnx_model, batch_numpy):
 
     # This configuration forces strict provider matching
     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider','CPUExecutionProvider'], sess_options=opts)
+    print("Execution Provider :", session.get_providers()[0])
 
     input_name = session.get_inputs()[0].name
 
@@ -156,11 +209,11 @@ def inference_onnx(onnx_model, batch_numpy):
 
 
 
-# PostProcess
+
 
 # PostProcess
 
-def postprocess_onnx(outputs,image_files,image_folder,yaml_path,confidence_threshold=0.6,input_size=640):
+def postprocess_onnx(outputs,image_files,image_folder,label_path,confidence_threshold=0.6,input_size=640):
 
     if isinstance(input_size, int):
         input_size = (input_size, input_size)
@@ -168,19 +221,8 @@ def postprocess_onnx(outputs,image_files,image_folder,yaml_path,confidence_thres
     input_h, input_w = input_size
 
     # Load class names
-    with open(yaml_path, "r") as f:
-        data = yaml.safe_load(f)
-
-    class_names = data["names"]
-
-    if isinstance(class_names, dict):
-    
-        names = []
-    
-        for key in sorted(class_names.keys()):
-            names.append(class_names[key])
-    
-        class_names = names
+    with open(label_path, "r", encoding="utf-8") as f:
+        class_names = [line.strip() for line in f if line.strip()]
 
  
     for img_idx, image_name in enumerate(image_files):
@@ -188,6 +230,9 @@ def postprocess_onnx(outputs,image_files,image_folder,yaml_path,confidence_thres
         image_path = os.path.join(image_folder, image_name)
 
         image = cv2.imread(image_path)
+        if image is None:
+            print(f"Unable to read {image_path}")
+            continue
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         H, W = image.shape[:2]
@@ -232,36 +277,38 @@ def postprocess_onnx(outputs,image_files,image_folder,yaml_path,confidence_thres
 
         print("\nAll output images saved successfully.")
     
-        # # Display
-        # plt.figure(figsize=(14,5))
-        # plt.imshow(blended)
-        # plt.title(image_name)
-        # plt.axis("off")
-        # plt.show()
-        
+
 
 
 
 def main():
 
-    model=load_model(MODEL_PATH)
+    try:
+        onnx_model_path = load_onnx_model(MODEL_DIR)
 
-    export_onnx_model(model)
+    # CHANGED: Catch FileNotFoundError instead of FileExistsError
+    except FileNotFoundError:
+        model = load_model(MODEL_PATH)
+        export_onnx_model(model)
+        onnx_model_path = load_onnx_model(MODEL_DIR)
 
-    onnx_model_path=load_onnx_model(MODEL_DIR)
+    batch_numpy, image_files = preprocess_onnx(
+        folder_path=IMAGE_DIR,
+    )
 
-    batch_numpy, image_files = preprocess_onnx(IMAGE_DIR)
+    predictions, inference_time = inference_onnx(
+        onnx_model=onnx_model_path,
+        batch_numpy=batch_numpy,
+    )
 
-    predictions,inference_time = inference_onnx(onnx_model_path,batch_numpy)
-
-    postprocess_onnx(predictions,image_files,IMAGE_DIR,YAML_PATH, confidence_threshold=0.6,input_size=INPUT_SIZE)
-
-    # # Inference
-    # predictions,inference_time = inference_onnx(session,input_name,batch_numpy)
-
-    # # Postprocess
-    # postprocess_onnx(predictions,image_files,image_folder,coco_yaml,confidence_threshold=0.6,input_size=img_size)
+    postprocess_onnx(
+        outputs=predictions,
+        image_files=image_files,
+        image_folder=IMAGE_DIR,
+        label_path=LABEL_PATH,
+        confidence_threshold=0.6,
+        input_size=INPUT_SIZE,
+    )
 
 if __name__ == "__main__":
     main()
-

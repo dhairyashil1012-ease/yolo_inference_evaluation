@@ -1,52 +1,78 @@
-import time
-import sys
-import cv2
 import os
-import yaml
+import time
+import cv2
 import torch
-import numpy as np
-from PIL import Image
 from pathlib import Path
-import tensorrt as trt
+from configparser import ConfigParser
 from ultralytics import YOLO
-import matplotlib.pyplot as plt
-from torchvision import transforms
-import torchvision.transforms as transforms
-from cuda.bindings import runtime as cudart
-import shutil
-from zipfile import ZipFile
 
 
 
-
-
-MODEL_NAME = "yolo26n.pt"
-INPUT_SIZE = (640, 640)
 
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Detection_Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "PT_Output"
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+# ==========================================================
+# PATHS
+# ==========================================================
 
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["PT_OUTPUT_DIR"]
+
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
+
+
+
+
+# ==========================================================
+# Setup Model
+# ==========================================================
 
 def setup_model():
 
-    source_model = PROJECT_DIR / MODEL_NAME
+    if MODEL_PATH.exists():
+        print(f"Using existing model : {MODEL_PATH}")
+        return
 
-    if source_model.exists() and not MODEL_PATH.exists():
-        shutil.move(str(source_model), str(MODEL_PATH))
+    print(f"Model not found. Downloading {MODEL_NAME}...")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+    # Download model from Ultralytics
+    YOLO(MODEL_NAME)
 
-    print(f"Using Model : {MODEL_PATH}")
+    downloaded_model = PROJECT_DIR / MODEL_NAME
 
+    if not downloaded_model.exists():
+        raise FileNotFoundError(f"Failed to download {MODEL_NAME}")
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+
+    downloaded_model.replace(MODEL_PATH)
+
+    print(f"Model saved to : {MODEL_PATH}")
 
 # ==========================================================
 # Load Model
@@ -56,13 +82,12 @@ def load_model(model_path):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = YOLO(str(model_path))
+    print(f"Running on : {device}")
+
+    model = YOLO(model_path)
     model.to(device)
 
-    print(f"Running on device : {device}")
-
     return model
-
 
 # Preprocess
 
@@ -75,6 +100,9 @@ def preprocess(folder_path):
             (".jpg", ".jpeg", ".png", ".bmp", ".webp")
         )
     ])
+
+    if len(image_paths) == 0:
+        raise ValueError("No images found.")    
 
     print("\n" + "=" * 60)
     print("PREPROCESS")
@@ -93,15 +121,18 @@ def preprocess(folder_path):
 
 def inference(model, folder_path):
 
-    torch.cuda.synchronize()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
 
     start = time.perf_counter()
 
+    device = 0 if torch.cuda.is_available() else "cpu"
+
     results = model.predict(
-        source=folder_path,
-        imgsz=640,
-        device=0,
-        verbose=False
+        source=str(folder_path),
+        imgsz=INPUT_SIZE,
+        device=device,
+        verbose=False,
     )
 
     torch.cuda.synchronize()
@@ -135,18 +166,17 @@ def postprocess(results, image_paths):
 
     for result, image_path in zip(results, image_paths):
 
-        image = cv2.imread(image_path)
+        image = cv2.imread(str(image_path))
+
+        if image is None:
+            print(f"Unable to read {image_path}")
+            continue
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
 
         if len(result.boxes) == 0:
 
             print(f"\nImage : {os.path.basename(image_path)}")
             print("No Detection")
-
-            plt.figure(figsize=(8,6))
-            plt.imshow(image)
-            plt.axis("off")
-            plt.show()
 
             continue
 
@@ -197,31 +227,22 @@ def postprocess(results, image_paths):
     print("\nAll output images saved successfully.")
 
 
-# Main
 
-
-# def main():
-
-#     setup_model()
-
-#     model = load_model(MODEL_PATH)
-
-#     preprocess(IMAGE_DIR)
-
-#     results = inference(model, IMAGE_DIR)
-
-#     save_results(results)
 
 def main():
-        
+
     setup_model()
 
     model = load_model(MODEL_PATH)
 
     image_paths = preprocess(IMAGE_DIR)
-    results = inference(model,IMAGE_DIR)
-    postprocess(results,image_paths)
+
+    results = inference(model, IMAGE_DIR)
+
+    postprocess(results, image_paths)
 
 
 if __name__ == "__main__":
     main()
+
+

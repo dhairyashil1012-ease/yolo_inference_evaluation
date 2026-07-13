@@ -1,56 +1,93 @@
 import os
 import time
 import shutil
-from pathlib import Path
-
 import cv2
 import torch
 from ultralytics import YOLO
 from pathlib import Path
+from configparser import ConfigParser
 
 
-
-MODEL_NAME = "yolo26n-cls.pt"
-INPUT_SIZE = (224, 224)
 
 PROJECT_DIR = Path.cwd()
 
-MODEL_DIR = PROJECT_DIR / "Classification _Models"
-IMAGE_DIR = PROJECT_DIR / "Images"
-OUTPUT_DIR = PROJECT_DIR / "PT_Output"
+config = ConfigParser()
+config.read(PROJECT_DIR / "config.txt")
 
-MODEL_DIR.mkdir(exist_ok=True)
-OUTPUT_DIR.mkdir(exist_ok=True)
+# ==========================================================
+# PATHS
+# ==========================================================
 
+MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
+IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
+OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["PT_OUTPUT_DIR"]
+
+MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 
+INPUT_SIZE = (
+    config.getint("MODEL", "INPUT_HEIGHT"),
+    config.getint("MODEL", "INPUT_WIDTH"),
+)
+
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
+print("=" * 60)
+print("CONFIGURATION")
+print("=" * 60)
+print(f"Model Path : {MODEL_PATH}")
+print(f"Image Path : {IMAGE_DIR}")
+print(f"Output Dir : {OUTPUT_DIR}")
+print(f"Input Size : {INPUT_SIZE}")
+print("=" * 60)
+
+
+
+
+
+# ==========================================================
+# Setup Model
+# ==========================================================
 
 def setup_model():
 
-    source_model = PROJECT_DIR / MODEL_NAME
+    if MODEL_PATH.exists():
+        print(f"Using existing model : {MODEL_PATH}")
+        return
 
-    if source_model.exists() and not MODEL_PATH.exists():
-        shutil.move(str(source_model), str(MODEL_PATH))
+    print(f"Model not found. Downloading {MODEL_NAME}...")
 
-    if not MODEL_PATH.exists():
-        raise FileNotFoundError(f"Model not found: {MODEL_PATH}")
+    YOLO(MODEL_NAME)
 
-    print(f"Using Model : {MODEL_PATH}")
+    downloaded_model = PROJECT_DIR / MODEL_NAME
 
+    if not downloaded_model.exists():
+        raise FileNotFoundError(f"Failed to download {MODEL_NAME}")
+
+    downloaded_model.replace(MODEL_PATH)
+
+    print(f"Model saved to : {MODEL_PATH}")
+    
 
 # Load Model
-
 
 def load_model(model_path):
 
     device = "cuda" if torch.cuda.is_available() else "cpu"
 
-    model = YOLO(str(model_path))
+    print(f"Running on : {device}")
+
+    model = YOLO(model_path)
     model.to(device)
 
-    print(f"Running on device : {device}")
-
     return model
+
+
+
 
 
 # Preprocess
@@ -80,18 +117,30 @@ def preprocess(folder_path):
 
 
 
+
+
+
 # Inference
 
 
 def inference(model, folder_path):
 
-    torch.cuda.synchronize()
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
 
     start = time.perf_counter()
 
-    results = model.predict(source=str(folder_path),imgsz=INPUT_SIZE,device=0,verbose=False)
+    device = 0 if torch.cuda.is_available() else "cpu"
 
-    torch.cuda.synchronize()
+    results = model.predict(
+        source=str(folder_path),
+        imgsz=INPUT_SIZE,
+        device=device,
+        verbose=False,
+    )
+
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
 
     end = time.perf_counter()
 
@@ -112,6 +161,10 @@ def inference(model, folder_path):
 
 
 
+
+
+
+
 # PostProcess
 
 def postprocess(results, image_paths):
@@ -126,7 +179,10 @@ def postprocess(results, image_paths):
         class_id = probs.top1
         confidence = probs.top1conf.item()
         class_name = result.names[class_id]
-        image = cv2.imread(image_path)
+        image = cv2.imread(str(image_path))
+        if image is None:
+            print(f"Unable to read {image_path}")
+            continue
         confidence=confidence*100
         
         file_name=Path(image_path).name
@@ -158,6 +214,9 @@ def postprocess(results, image_paths):
 
 
 
+
+
+
 # Main
 
 def main():
@@ -166,11 +225,11 @@ def main():
 
     model = load_model(MODEL_PATH)
 
-    image_paths=preprocess(IMAGE_DIR)
+    image_paths = preprocess(IMAGE_DIR)
 
     results = inference(model, IMAGE_DIR)
 
-    postprocess(results,image_paths)
+    postprocess(results, image_paths)
 
 
 if __name__ == "__main__":

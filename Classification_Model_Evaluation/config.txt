@@ -1,0 +1,21 @@
+[PATHS]
+MODEL_DIR = Classification_Models
+
+PT_MODEL_NAME = yolo26n-cls.pt
+ONNX_MODEL_NAME = yolo26n-cls.onnx
+ENGINE_MODEL_NAME = yolo26n-cls.engine
+
+IMAGE_DIR = ../Images
+
+PT_OUTPUT_DIR = PT_Output
+ONNX_OUTPUT_DIR = ONNX_Output
+ENGINE_OUTPUT_DIR = ENGINE_Output
+
+YAML_DIR = cls-yaml
+LABEL_NAME = label.txt
+
+[MODEL]
+INPUT_WIDTH = 224
+INPUT_HEIGHT = 224
+
+ONNX_EXPORT_BATCH = 16

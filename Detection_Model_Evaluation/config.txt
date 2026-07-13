@@ -1,0 +1,17 @@
+[PATHS]
+MODEL_DIR = Detection_Models
+PT_MODEL_NAME = yolo26n.pt
+ONNX_MODEL_NAME = yolo26n.onnx
+ENGINE_MODEL_NAME = yolo26n.engine
+IMAGE_DIR = ../Images
+PT_OUTPUT_DIR = PT_Output
+ONNX_OUTPUT_DIR = ONNX_Output
+ENGINE_OUTPUT_DIR = ENGINE_Output
+YAML_DIR = detection-yaml
+LABEL_NAME = label.txt
+YAML_NAME = coco.yaml
+
+[MODEL]
+INPUT_WIDTH = 640
+INPUT_HEIGHT = 640
+ONNX_EXPORT_BATCH = 16
