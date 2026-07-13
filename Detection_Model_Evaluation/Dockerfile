@@ -64,5 +64,10 @@ COPY . .
 # # Default Command
 # # ==========================================================
 
-# CMD ["bash"]
-CMD ["python3", "main.py", "-m", "pt"]
+
+
+ENTRYPOINT ["python3", "main.py", "-m"]
+
+
+CMD ["pt"]
+# docker run -it     --gpus all     -p 8888:8888     -v `pwd`:/workspace     -w /workspace     yolo_inference_evaluation:latest onnx
