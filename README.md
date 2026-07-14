@@ -6,13 +6,13 @@ This repository provides a Docker-based inference and benchmarking pipeline for 
 * Object Detection
 * Semantic Segmentation
 
-Each task supports inference using three different model formats:
+Each task supports inference using the following model formats:
 
 * **Ultralytics YOLO (.pt)**
 * **ONNX Runtime (.onnx)**
 * **TensorRT (.engine)**
 
-The project is designed to help users compare inference performance across different inference backends while maintaining consistent prediction results.
+The primary objective of this repository is to benchmark and compare inference performance across different deployment backends while maintaining consistent prediction results.
 
 ---
 
@@ -28,13 +28,13 @@ yolo_inference_evaluation/
 └── README.md
 ```
 
-Each task directory is a self-contained project containing:
+Each task directory is a self-contained project that includes:
 
 * Dockerfile
 * Source code
-* Model directory
 * Configuration file
-* Sample images
+* Model directory
+* Sample input images
 * Output directories
 * Task-specific README
 
@@ -42,7 +42,7 @@ Each task directory is a self-contained project containing:
 
 # Supported Tasks
 
-| Task                  | Supported Models          |
+| Task                  | Supported Model Formats   |
 | --------------------- | ------------------------- |
 | Image Classification  | `.pt`, `.onnx`, `.engine` |
 | Object Detection      | `.pt`, `.onnx`, `.engine` |
@@ -60,7 +60,7 @@ Each task directory is a self-contained project containing:
 
 ---
 
-# Workflow
+# Inference Workflow
 
 ```text
 YOLO (.pt)
@@ -86,46 +86,9 @@ git clone -b Development_Branch_V3 https://github.com/dhairyashil1012-ease/yolo_
 cd yolo_inference_evaluation
 ```
 
----
+## Step 2: Build and Run
 
-## Step 2: Download the TensorRT Docker Image
-
-The Dockerfiles used in this repository are based on NVIDIA TensorRT Docker images.
-
-TensorRT Docker images are available from the NVIDIA NGC Catalog:
-
-https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt/tags
-
-Pull one of the supported TensorRT images before building the project Docker images.
-
-```bash
-docker pull nvcr.io/nvidia/tensorrt:26.06-py3
-```
-
-or
-
-```bash
-docker pull nvcr.io/nvidia/tensorrt:26.04-py3
-```
-
-> **Note**
->
-> Ensure that Docker, the NVIDIA GPU Driver, and the NVIDIA Container Toolkit are installed and configured correctly before pulling or running the TensorRT Docker images.
-
----
-
-# Project Organization
-
-Each task is an independent project with its own:
-
-* Dockerfile
-* Docker image
-* Source code
-* Configuration
-* Model directory
-* Sample images
-* Output directories
-* Task-specific README
+Each task directory contains its own Dockerfile and is designed to be built independently.
 
 Navigate to the task you want to execute:
 
@@ -145,7 +108,28 @@ or
 Semantic_Segmentation_Model_Evaluation/
 ```
 
-Each task-specific README explains how to:
+Build the Docker image by following the instructions provided in the corresponding task-specific **README.md**.
+
+> **Note**
+>
+> The Dockerfiles use the NVIDIA TensorRT base image (`nvcr.io/nvidia/tensorrt`). If the base image is not available locally, Docker will automatically download it during the build process.
+
+---
+
+# Project Organization
+
+Each task directory contains:
+
+* Dockerfile
+* `main.py`
+* Source code (`src/`)
+* Configuration (`config.txt`)
+* Model directory
+* Input images
+* Output directories
+* Task-specific documentation
+
+The task-specific README explains how to:
 
 1. Build the Docker image.
 2. Run inference using:
@@ -154,13 +138,13 @@ Each task-specific README explains how to:
    * ONNX Runtime (`.onnx`)
    * TensorRT (`.engine`)
 3. Configure runtime parameters.
-4. View the generated output.
+4. View the generated outputs.
 
 ---
 
 # Model Dependency
 
-The supported model formats follow the workflow shown below:
+The supported model formats follow the workflow below:
 
 ```text
 .pt
@@ -172,8 +156,8 @@ The supported model formats follow the workflow shown below:
 .engine
 ```
 
-* **ONNX (`.onnx`)** models are exported from the corresponding **PyTorch (`.pt`)** models.
-* **TensorRT (`.engine`)** models are generated from the corresponding **ONNX (`.onnx`)** models.
+* The **ONNX (`.onnx`)** model is exported from the corresponding **PyTorch (`.pt`)** model.
+* The **TensorRT (`.engine`)** model is generated from the corresponding **ONNX (`.onnx`)** model.
 
 Ensure that the required model files are available before running inference.
 
@@ -191,13 +175,13 @@ Ensure that the required model files are available before running inference.
 
 # Repository Goal
 
-This repository provides a simple, modular, and reproducible environment for evaluating YOLO inference performance across multiple deployment backends.
+This repository offers a modular and reproducible environment for evaluating YOLO inference performance across multiple deployment backends.
 
 It enables users to:
 
 * Run inference using PyTorch, ONNX Runtime, and TensorRT.
 * Benchmark GPU inference performance.
-* Compare outputs across different model formats.
-* Execute the complete pipeline using Docker.
+* Compare prediction outputs across different model formats.
+* Execute the complete inference pipeline using Docker.
 
-For task-specific setup and execution instructions, refer to the corresponding **README.md** inside each task directory.
+Refer to the **README.md** inside each task directory for detailed setup, configuration, and execution instructions.
