@@ -31,6 +31,7 @@ Detection_Model_Evaluation/Detection_Models/*
 
 Detection_Model_Evaluation/Images-20260702T141014Z-3-001/*
 !Detection_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
+Detection_Model_Evaluation/src/__pycache__
 Detection_Model_Evaluation/ENGINE_Output
 Detection_Model_Evaluation/ONNX_Output
 Detection_Model_Evaluation/PT_Output
