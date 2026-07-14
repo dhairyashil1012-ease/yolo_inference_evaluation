@@ -1,58 +1,54 @@
-
-
-# CUDA package
+# --------------------------------------------------
+# CUDA Package
+# --------------------------------------------------
 cuda-repo-ubuntu2404-12-8-local_12.8.2-570.211.01-1_amd64.deb
 
+# --------------------------------------------------
 # Jupyter
+# --------------------------------------------------
 **/.ipynb_checkpoints/
 
+# --------------------------------------------------
+# Python
+# --------------------------------------------------
+**/__pycache__/
+*.py[cod]
+
+# --------------------------------------------------
 # Classification
+# --------------------------------------------------
 
-# Classification_Model_Evaluation/cls-yaml/*
-# !Classification_Model_Evaluation/cls-yaml/.gitkeep
-
+# Ignore model files, keep directory structure
 Classification_Model_Evaluation/Classification_Models/*
 !Classification_Model_Evaluation/Classification_Models/.gitkeep
-Classification_Model_Evaluation/ONNX_Output
-Classification_Model_Evaluation/ENGINE_Output
-Classification_Model_Evaluation/src/__pycache__
-Classification_Model_Evaluation/PT_Output
 
-Classification_Model_Evaluation/Images-20260702T141014Z-3-001/*
-!Classification_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
-Classification_Model_Evaluation/Classification_Model_Evaluation.ipynb
-# Classification_Model_Evaluation/Images
+# Ignore generated outputs
+Classification_Model_Evaluation/PT_Output/
+Classification_Model_Evaluation/ONNX_Output/
+Classification_Model_Evaluation/ENGINE_Output/
+
+# --------------------------------------------------
 # Detection
+# --------------------------------------------------
 
+# Ignore model files, keep directory structure
 Detection_Model_Evaluation/Detection_Models/*
 !Detection_Model_Evaluation/Detection_Models/.gitkeep
 
-# Detection_Model_Evaluation/detection-yaml/*
-# !Detection_Model_Evaluation/detection-yaml/.gitkeep
+# Ignore generated outputs
+Detection_Model_Evaluation/PT_Output/
+Detection_Model_Evaluation/ONNX_Output/
+Detection_Model_Evaluation/ENGINE_Output/
 
-Detection_Model_Evaluation/Images-20260702T141014Z-3-001/*
-!Detection_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
-Detection_Model_Evaluation/src/__pycache__
-Detection_Model_Evaluation/ENGINE_Output
-Detection_Model_Evaluation/ONNX_Output
-Detection_Model_Evaluation/PT_Output
-Detection_Model_Evaluation/Detection_Model_Evaluation.ipynb
-# Detection_Model_Evaluation/Images
-# Segmentation
+# --------------------------------------------------
+# Semantic Segmentation
+# --------------------------------------------------
 
+# Ignore model files, keep directory structure
 Semantic_Segmentation_Model_Evaluation/Sem_Models/*
 !Semantic_Segmentation_Model_Evaluation/Sem_Models/.gitkeep
 
-Semantic_Segmentation_Model_Evaluation/ENGINE_Output
-Semantic_Segmentation_Model_Evaluation/ONNX_Output
-Semantic_Segmentation_Model_Evaluation/PT_Output
-Semantic_Segmentation_Model_Evaluation/src/__pycache__
-Semantic_Segmentation_Model_Evaluation/Segmentation_Model_Evaluation.ipynb
-
-# Semantic_Segmentation_Model_Evaluation/sem-yaml/*
-# !Semantic_Segmentation_Model_Evaluation/sem-yaml/.gitkeep
-
-Semantic_Segmentation_Model_Evaluation/Images-20260702T141014Z-3-001/*
-!Semantic_Segmentation_Model_Evaluation/Images-20260702T141014Z-3-001/.gitkeep
-# Semantic_Segmentation_Model_Evaluation/Images
-
+# Ignore generated outputs
+Semantic_Segmentation_Model_Evaluation/PT_Output/
+Semantic_Segmentation_Model_Evaluation/ONNX_Output/
+Semantic_Segmentation_Model_Evaluation/ENGINE_Output/
