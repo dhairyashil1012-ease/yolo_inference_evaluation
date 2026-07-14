@@ -5,13 +5,13 @@ PT_MODEL_NAME = yolo26n-cls.pt
 ONNX_MODEL_NAME = yolo26n-cls.onnx
 ENGINE_MODEL_NAME = yolo26n-cls.engine
 
-IMAGE_DIR = ../Images
+IMAGE_DIR = Images
 
 PT_OUTPUT_DIR = PT_Output
 ONNX_OUTPUT_DIR = ONNX_Output
 ENGINE_OUTPUT_DIR = ENGINE_Output
 
-YAML_DIR = cls-yaml
+YAML_DIR = cls-labels
 LABEL_NAME = label.txt
 
 [MODEL]

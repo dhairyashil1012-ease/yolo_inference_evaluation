@@ -1,0 +1,14 @@
+notebook
+opencv-python
+PyYAML
+torch
+torchvision
+numpy
+Pillow
+tensorrt
+ultralytics==8.4.75
+matplotlib
+cuda-python
+onnx== 1.22.0
+onnxruntime==1.19.2
+onnxruntime-gpu

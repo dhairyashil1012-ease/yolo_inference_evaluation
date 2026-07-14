@@ -1,192 +1,62 @@
 # YOLO Inference Benchmark & Evaluation Pipeline
 
-This repository demonstrates inference and benchmarking of pretrained **YOLO** models for the following computer vision tasks:
+This repository provides a Docker-based inference and benchmarking pipeline for pretrained **YOLO** models across three computer vision tasks:
 
 * Image Classification
 * Object Detection
 * Semantic Segmentation
 
-Each task provides separate Python scripts for running inference using three different model formats:
+Each task supports inference using three different model formats:
 
-* **YOLO (.pt)** – Ultralytics (PyTorch)
-* **ONNX (.onnx)** – ONNX Runtime
-* **TensorRT (.engine)** – TensorRT
+* **Ultralytics YOLO (.pt)**
+* **ONNX Runtime (.onnx)**
+* **TensorRT (.engine)**
 
-The objective is to compare inference performance while maintaining consistent prediction outputs across all supported model formats.
-
-> **Note**
->
-> This project is designed for **GPU-enabled systems** and requires an NVIDIA GPU with CUDA support.
+The project is designed to help users compare inference performance across different inference backends while maintaining consistent prediction results.
 
 ---
 
-# Project Structure
+# Repository Structure
 
 ```text
 yolo_inference_evaluation/
 │
-├── Dockerfile
-├── README.md
-├── requirements.txt
-├── Images/
-│
 ├── Classification_Model_Evaluation/
-│   ├── cls-yaml
-│   ├── classification_pt_model.py
-│   ├── classification_onnx_model.py
-│   ├── classification_engine_model.py
-│   ├── Classification_Models/
-│   ├── config.txt
-│   └── README.md
-│
 ├── Detection_Model_Evaluation/
-│   ├── detection-yaml
-│   ├── detection_pt_model.py
-│   ├── detection_onnx_model.py
-│   ├── detection_engine_model.py
-│   ├── Detection_Models/
-│   ├── config.txt
-│   └── README.md
+├── Semantic_Segmentation_Model_Evaluation/
 │
-└── Semantic_Segmentation_Model_Evaluation/
-    ├── segmentation_pt_model.py
-    ├── segmentation_onnx_model.py
-    ├── segmentation_engine_model.py
-    ├── config.txt
-    └── README.md
+└── README.md
 ```
 
-Each task directory contains:
+Each task directory is a self-contained project containing:
 
-* Python scripts for `.pt`, `.onnx`, and `.engine` inference
-* Model files
+* Dockerfile
+* Source code
+* Model directory
 * Configuration file
+* Sample images
+* Output directories
 * Task-specific README
-
----
-
-# Prerequisites
-
-* Docker
-* NVIDIA GPU
-* NVIDIA Driver
-* NVIDIA Container Toolkit
-
----
-
-# Getting Started
-
-## 1. Clone the Repository
-
-Clone the **Development_Branch_V3** branch.
-
-```bash
-git clone -b Development_Branch_V3 https://github.com/dhairyashil1012-ease/yolo_inference_evaluation.git
-
-cd yolo_inference_evaluation
-```
-
----
-
-## 2. Build the Docker Image
-
-```bash
-docker build -t yolo_inference_evaluation .
-```
-
----
-
-## 3. Start the Docker Container
-
-```bash
-docker run -it \
-    --gpus all \
-    -p 8888:8888 \
-    -v `pwd`:/workspace \
-    -w /workspace \
-    yolo_inference_evaluation:latest \
-    bash
-```
-
----
-
-# Running the Code
-
-Navigate to the required task directory.
-
-## Image Classification
-
-```bash
-cd Classification_Model_Evaluation
-```
-
-Run any of the following:
-
-```bash
-python3 classification_pt_model.py
-```
-
-```bash
-python3 classification_onnx_model.py
-```
-
-```bash
-python3 classification_engine_model.py
-```
-
----
-
-## Object Detection
-
-```bash
-cd Detection_Model_Evaluation
-```
-
-Run:
-
-```bash
-python3 detection_pt_model.py
-```
-
-```bash
-python3 detection_onnx_model.py
-```
-
-```bash
-python3 detection_engine_model.py
-```
-
----
-
-## Semantic Segmentation
-
-```bash
-cd Semantic_Segmentation_Model_Evaluation
-```
-
-Run:
-
-```bash
-python3 segmentation_pt_model.py
-```
-
-```bash
-python3 segmentation_onnx_model.py
-```
-
-```bash
-python3 segmentation_engine_model.py
-```
 
 ---
 
 # Supported Tasks
 
-| Task                  | Supported Model Formats   |
+| Task                  | Supported Models          |
 | --------------------- | ------------------------- |
 | Image Classification  | `.pt`, `.onnx`, `.engine` |
 | Object Detection      | `.pt`, `.onnx`, `.engine` |
 | Semantic Segmentation | `.pt`, `.onnx`, `.engine` |
+
+---
+
+# Supported Model Formats
+
+| Model Format | Inference Backend          |
+| ------------ | -------------------------- |
+| `.pt`        | Ultralytics YOLO (PyTorch) |
+| `.onnx`      | ONNX Runtime               |
+| `.engine`    | TensorRT                   |
 
 ---
 
@@ -196,10 +66,7 @@ python3 segmentation_engine_model.py
 YOLO (.pt)
       │
       ▼
-PyTorch Inference
-      │
-      ▼
-ONNX Runtime (.onnx)
+ONNX (.onnx)
       │
       ▼
 TensorRT (.engine)
@@ -207,15 +74,130 @@ TensorRT (.engine)
 
 ---
 
+# Getting Started
+
+## Step 1: Clone the Repository
+
+Clone the **Development_Branch_V3** branch and navigate to the project directory.
+
+```bash
+git clone -b Development_Branch_V3 https://github.com/dhairyashil1012-ease/yolo_inference_evaluation.git
+
+cd yolo_inference_evaluation
+```
+
+---
+
+## Step 2: Download the TensorRT Docker Image
+
+The Dockerfiles used in this repository are based on NVIDIA TensorRT Docker images.
+
+TensorRT Docker images are available from the NVIDIA NGC Catalog:
+
+https://catalog.ngc.nvidia.com/orgs/nvidia/containers/tensorrt/tags
+
+Pull one of the supported TensorRT images before building the project Docker images.
+
+```bash
+docker pull nvcr.io/nvidia/tensorrt:26.06-py3
+```
+
+or
+
+```bash
+docker pull nvcr.io/nvidia/tensorrt:26.04-py3
+```
+
+> **Note**
+>
+> Ensure that Docker, the NVIDIA GPU Driver, and the NVIDIA Container Toolkit are installed and configured correctly before pulling or running the TensorRT Docker images.
+
+---
+
+# Project Organization
+
+Each task is an independent project with its own:
+
+* Dockerfile
+* Docker image
+* Source code
+* Configuration
+* Model directory
+* Sample images
+* Output directories
+* Task-specific README
+
+Navigate to the task you want to execute:
+
+```text
+Classification_Model_Evaluation/
+```
+
+or
+
+```text
+Detection_Model_Evaluation/
+```
+
+or
+
+```text
+Semantic_Segmentation_Model_Evaluation/
+```
+
+Each task-specific README explains how to:
+
+1. Build the Docker image.
+2. Run inference using:
+
+   * Ultralytics YOLO (`.pt`)
+   * ONNX Runtime (`.onnx`)
+   * TensorRT (`.engine`)
+3. Configure runtime parameters.
+4. View the generated output.
+
+---
+
+# Model Dependency
+
+The supported model formats follow the workflow shown below:
+
+```text
+.pt
+ │
+ ▼
+.onnx
+ │
+ ▼
+.engine
+```
+
+* **ONNX (`.onnx`)** models are exported from the corresponding **PyTorch (`.pt`)** models.
+* **TensorRT (`.engine`)** models are generated from the corresponding **ONNX (`.onnx`)** models.
+
+Ensure that the required model files are available before running inference.
+
+---
+
+# Requirements
+
+* Ubuntu
+* Docker
+* NVIDIA GPU
+* NVIDIA Driver
+* NVIDIA Container Toolkit
+
+---
+
 # Repository Goal
 
-This repository provides a simple and modular implementation for benchmarking YOLO models across multiple inference backends.
+This repository provides a simple, modular, and reproducible environment for evaluating YOLO inference performance across multiple deployment backends.
 
 It enables users to:
 
-* Run inference using PyTorch, ONNX Runtime, and TensorRT
-* Compare inference performance
-* Understand the inference pipeline for each backend
-* Use a Docker-based environment for reproducible execution
+* Run inference using PyTorch, ONNX Runtime, and TensorRT.
+* Benchmark GPU inference performance.
+* Compare outputs across different model formats.
+* Execute the complete pipeline using Docker.
 
-Refer to the **README.md** inside each task directory for task-specific details and configuration.
+For task-specific setup and execution instructions, refer to the corresponding **README.md** inside each task directory.
