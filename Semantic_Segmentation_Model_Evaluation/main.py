@@ -1,17 +1,15 @@
 import os
 import sys
+from src import (segementation_pt_model,segmentation_engine_model,segmentation_onnx_model)
 # Wrap imports inside functional execution blocks
 
 def run_pt():
-    from src import segementation_pt_model
     segementation_pt_model.main()
 
 def run_onnx():
-    from src import segmentation_onnx_model
     segmentation_onnx_model.main()
 
 def run_engine():
-    from src import segmentation_engine_model
     segmentation_engine_model.main()
 
 

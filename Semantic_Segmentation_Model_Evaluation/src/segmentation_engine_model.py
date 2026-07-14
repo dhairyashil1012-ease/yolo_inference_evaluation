@@ -41,9 +41,6 @@ IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
 
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(MODEL_PATH)
-
 
 print("=" * 60)
 print("CONFIGURATION")

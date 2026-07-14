@@ -41,7 +41,7 @@ LABEL_NAME = config["PATHS"]["LABEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = LABEL_DIR / LABEL_NAME
 
-print(MODEL_DIR)
+# print(MODEL_DIR)
 
 INPUT_SIZE = (
     config.getint("MODEL", "INPUT_HEIGHT"),
@@ -54,13 +54,13 @@ MODEL_DIR.mkdir(parents=True, exist_ok=True)
 # YAML_DIR.mkdir(parents=True, exist_ok=True)
 # print(MODEL_PATH)
 
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(MODEL_PATH)
+# if not MODEL_PATH.exists():
+#     raise FileNotFoundError(MODEL_PATH)
 
 
-if not LABEL_PATH.exists():
-    raise FileNotFoundError(f"Label file not found at: {LABEL_PATH}")
-# print(LABEL_PATH)
+# if not LABEL_PATH.exists():
+#     raise FileNotFoundError(f"Label file not found at: {LABEL_PATH}")
+# # print(LABEL_PATH)
 
 
 print("=" * 60)

@@ -48,11 +48,6 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 LABEL_DIR.mkdir(parents=True, exist_ok=True)
 
-if not MODEL_PATH.exists():
-    raise FileNotFoundError(f"Engine model not found at: {MODEL_PATH}")
-
-if not LABEL_PATH.exists():
-    raise FileNotFoundError(f"Label file not found at: {LABEL_PATH}")
 
 print("=" * 60)
 print("Configuration")

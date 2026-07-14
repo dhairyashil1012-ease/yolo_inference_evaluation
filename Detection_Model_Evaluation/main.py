@@ -1,17 +1,16 @@
 import os
 import sys
+from src import (detection_pt_model,detection_onnx_model,detection_engine_model)
+
 # Wrap imports inside functional execution blocks
 
 def run_pt():
-    from src import detection_pt_model
     detection_pt_model.main()
 
 def run_onnx():
-    from src import detection_onnx_model
     detection_onnx_model.main()
 
 def run_engine():
-    from src import detection_engine_model
     detection_engine_model.main()
 
 

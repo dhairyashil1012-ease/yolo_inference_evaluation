@@ -1,17 +1,15 @@
 import os
 import sys
+from src import (classification_pt_model,classification_engine_model,classification_onnx_model)
 # Wrap imports inside functional execution blocks
 
 def run_pt():
-    from src import classification_pt_model
     classification_pt_model.main()
 
 def run_onnx():
-    from src import classification_onnx_model
     classification_onnx_model.main()
 
 def run_engine():
-    from src import classification_engine_model
     classification_engine_model.main()
 
 
