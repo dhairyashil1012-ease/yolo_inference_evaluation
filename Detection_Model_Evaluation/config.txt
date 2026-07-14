@@ -7,9 +7,9 @@ IMAGE_DIR = Images
 PT_OUTPUT_DIR = PT_Output
 ONNX_OUTPUT_DIR = ONNX_Output
 ENGINE_OUTPUT_DIR = ENGINE_Output
-YAML_DIR = detection-yaml
+YAML_DIR = detection-labels
 LABEL_NAME = label.txt
-YAML_NAME = coco.yaml
+
 
 [MODEL]
 INPUT_WIDTH = 640

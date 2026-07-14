@@ -32,14 +32,16 @@ LABEL_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
 
 
 
-YAML_NAME = config["PATHS"]["YAML_NAME"]
+
 MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
 LABEL_NAME = config["PATHS"]["LABEL_NAME"]
 
 
-YAML_PATH = YAML_DIR / YAML_NAME
+
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = LABEL_DIR / LABEL_NAME
+
+print(MODEL_DIR)
 
 INPUT_SIZE = (
     config.getint("MODEL", "INPUT_HEIGHT"),
@@ -47,16 +49,14 @@ INPUT_SIZE = (
 )
 
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
-IMAGE_DIR.mkdir(parents=True, exist_ok=True)
-OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
-YAML_DIR.mkdir(parents=True, exist_ok=True)
-print(YAML_DIR)
+# IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+# OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+# YAML_DIR.mkdir(parents=True, exist_ok=True)
+# print(MODEL_PATH)
 
 if not MODEL_PATH.exists():
     raise FileNotFoundError(MODEL_PATH)
 
-# if not YAML_PATH.exists():
-#     raise FileNotFoundError(YAML_PATH)
 
 if not LABEL_PATH.exists():
     raise FileNotFoundError(f"Label file not found at: {LABEL_PATH}")
@@ -68,7 +68,6 @@ print("CONFIGURATION")
 print("=" * 60)
 print(f"Model Path : {MODEL_PATH}")
 print(f"Image Path : {IMAGE_DIR}")
-print(f"YAML Path  : {YAML_PATH}")
 print(f"Output Dir : {OUTPUT_DIR}")
 print(f"Input Size : {INPUT_SIZE}")
 print("=" * 60)
@@ -77,17 +76,19 @@ print("=" * 60)
 
 
 # Load .pt Model
+# Inside src/detection_engine_model.py
+
 def load_model(model_path):
-
+    # Move the check here so it only triggers when called
+    if not os.path.exists(model_path):
+        raise FileNotFoundError(f"Model not found at: {model_path}")
+        
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-
     print(f"Running on : {device}")
-
     model = YOLO(model_path)
-
     model.to(device)
-
     return model
+
 
 
 
@@ -119,7 +120,6 @@ def load_onnx_model(model_dir):
     onnx_model = filelist[-1]
     print(f"ONNX Model : {onnx_model}")
     return onnx_model
-
 
 
 
