@@ -2,6 +2,9 @@ import os
 import sys
 import time
 import cv2
+import json
+import ast
+import re
 import platform
 import subprocess
 import numpy as np
@@ -78,6 +81,7 @@ def get_system_env_info():
 
 
 def get_model_details(engine_model_path, label_path):
+
     engine_model_path = Path(engine_model_path)
     if not engine_model_path.exists():
         return {
@@ -101,10 +105,24 @@ def get_model_details(engine_model_path, label_path):
     with open(engine_model_path, "rb") as f:
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
+        context = engine.create_execution_context()
+    inspector = engine.create_engine_inspector()
+    inspector.execution_context = context # OPTIONAL
+    var1=inspector.get_layer_information(0, trt.LayerInformationFormat.JSON) # Print the information of the first layer in the engine.
+    var2=inspector.get_engine_information(trt.LayerInformationFormat.JSON)
+    var3=var1+var2
+    pattern = r'"Weights":\s*(\{[^}]+\})'
+    matches = re.findall(pattern, var3)
+    weighted_sum=0
+    for i in matches:
+        dict_data=json.loads(i)
+        w=dict_data["Count"]
+        weighted_sum+=w
+
 
     architecture = "YOLO (TensorRT Engine)"
     
-
+ 
     try:
         # Check primary input tensor profile data type
         input_tensor_name = engine.get_tensor_name(0)
@@ -125,7 +143,7 @@ def get_model_details(engine_model_path, label_path):
 
     return {
         "Model Architecture": architecture,
-        "Total Parameters": "N/A (Compiled Graph)",
+        "Total Parameters": weighted_sum,
         "File Size": file_size_mb,
         "Number of Classes": len(class_names) if class_names else "Unknown",
         "Class Names": ", ".join(class_names) if class_names else "Unknown",
@@ -152,7 +170,8 @@ def export_engine_model(onnx_model_p):
         "--minShapes=images:1x3x224x224",
         "--optShapes=images:4x3x224x224",
         "--maxShapes=images:16x3x224x224",
-        "--saveEngine=yolo26n-cls.engine"
+        "--saveEngine=yolo26n-cls.engine",
+        "--profilingVerbosity=detailed"
     ], check=True)
     print("\nTensorRT engine export completed successfully.")
     time.sleep(1)
@@ -365,8 +384,7 @@ def main():
         "Peak Memory Usage": f"{peak_gpu_mb:.2f} MB"
     }
 
-    # 5. External Report Generation Callback
-    # Here you pass data structures directly to your isolated external generation script:
+
     print("\nProcessing complete. Dispatching telemetry payloads to PDF compiler...")
     
     # Example Call Structure:
