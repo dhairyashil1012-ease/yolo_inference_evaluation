@@ -15,6 +15,7 @@ from configparser import ConfigParser
 from ultralytics import YOLO
 import onnxruntime as ort
 import torchvision.transforms as transforms
+import ultralytics
 from src.report_generator import generate_pdf_report
 
 PROJECT_DIR = Path.cwd()
@@ -141,8 +142,6 @@ def preprocess_onnx(folder_path):
 
 
 def get_system_env_info():
-    """Gathers detailed OS, Python, PyTorch, and Hardware information."""
-    import ultralytics
     
     device_model = "CPU"
     cuda_version = "N/A"
@@ -261,7 +260,6 @@ def inference_onnx(onnx_model, batch_numpy):
 
 
 def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
-    # Start timer for formatting, bounding box overlays, and disk operations
     start_post = time.perf_counter()
 
     print("=" * 60)

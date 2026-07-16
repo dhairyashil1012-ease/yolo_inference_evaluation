@@ -56,14 +56,12 @@ print(f"Input Size : {INPUT_SIZE}")
 # Metadata Extraction Functions (CHANGED for TensorRT Engine)
 # -----------------------------
 def get_system_env_info():
-    """Gathers detailed OS, Python, TensorRT, and NVIDIA Hardware information."""
-    # Check GPU Hardware Name via Cuda Runtime Bindings
     try:
         _, device = cudart.cudaGetDevice()
         _, prop = cudart.cudaGetDeviceProperties(device)
         device_model = prop.name.decode("utf-8")
         
-        # Pull driver capabilities for versioning mapping
+     
         err, cuda_version_int = cudart.cudaRuntimeGetVersion()
         cuda_version = f"{cuda_version_int // 1000}.{(cuda_version_int % 1000) // 10}" if err == cudart.cudaError_t.cudaSuccess else "Unknown"
     except Exception:
@@ -80,16 +78,11 @@ def get_system_env_info():
 
 
 def get_model_details(engine_model_path, label_path):
-    """
-    Extracts model specifications directly from the compiled TensorRT Engine structure.
-    Does not require a dynamic framework context.
-    """
     engine_model_path = Path(engine_model_path)
     if not engine_model_path.exists():
         return {
             "Model Architecture": "TensorRT Engine",
             "Total Parameters": "Unknown",
-            "GFLOPs": "N/A",
             "File Size": "Unknown",
             "Number of Classes": "Unknown",
             "Class Names": "Unknown",
@@ -109,10 +102,9 @@ def get_model_details(engine_model_path, label_path):
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
 
-    # 1. Model Architecture / Engine properties
     architecture = "YOLO (TensorRT Engine)"
     
-    # 2. Extract Precision Mode from IO profile bindings data types
+
     try:
         # Check primary input tensor profile data type
         input_tensor_name = engine.get_tensor_name(0)
@@ -134,7 +126,6 @@ def get_model_details(engine_model_path, label_path):
     return {
         "Model Architecture": architecture,
         "Total Parameters": "N/A (Compiled Graph)",
-        "GFLOPs": "N/A",  # Not serialized in static engine formats
         "File Size": file_size_mb,
         "Number of Classes": len(class_names) if class_names else "Unknown",
         "Class Names": ", ".join(class_names) if class_names else "Unknown",
@@ -316,7 +307,6 @@ def main():
         engine_model_path = load_engine_model(MODEL_DIR)
         print(f"Using newly created engine: {engine_model_path}")
 
-    # 1. Run Pipeline and Extract execution intervals
     batch_numpy, image_files, preprocess_ms = preprocess_engine(
         image_folder=IMAGE_DIR,
         input_size=INPUT_SIZE,
