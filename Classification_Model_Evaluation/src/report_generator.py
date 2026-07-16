@@ -6,10 +6,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 def generate_pdf_report(output_pdf_path, backend, config_data, performance_data, predictions):
-    """
-    Generates a structured PDF report containing metadata, performance metrics, and predictions.
-    Safely isolates long string sequences to prevent LayoutError crashes.
-    """
+
     doc = SimpleDocTemplate(
         str(output_pdf_path),
         pagesize=letter,
