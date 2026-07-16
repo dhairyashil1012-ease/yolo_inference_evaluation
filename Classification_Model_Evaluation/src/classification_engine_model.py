@@ -264,10 +264,6 @@ def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
     with open(txt_label_path, "r", encoding="utf-8") as f:
         class_names = [line.strip() for line in f if line.strip()]
 
-    # Numeric Stable Softmax
-    # exp_preds = np.exp(predictions - np.max(predictions, axis=1, keepdims=True))
-    # probabilities = exp_preds / np.sum(exp_preds, axis=1, keepdims=True)
-
     class_ids = np.argmax(predictions, axis=1)
     scores = np.max(predictions, axis=1)
 
@@ -355,7 +351,6 @@ def main():
         "CUDA Version": env_info["CUDA Version"],
         "Model Architecture": model_details["Model Architecture"],
         "Total Parameters": model_details["Total Parameters"],
-        "GFLOPs": model_details["GFLOPs"],
         "File Size": model_details["File Size"],
         "Number of Classes": model_details["Number of Classes"],
         "Precision Mode": model_details["Precision Mode"],
@@ -373,12 +368,11 @@ def main():
     performance_metadata = {
         "Total Images Processed": str(total_images),
         "Total Run Time": f"{total_run_time_ms:.2f} ms",
-        # "Latency per Image": f"{(inference_ms / total_images):.2f} ms",
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
         "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f"Peak GPU: {peak_gpu_mb:.2f} MB"
+        "Peak Memory Usage": f"{peak_gpu_mb:.2f} MB"
     }
 
     # 5. External Report Generation Callback

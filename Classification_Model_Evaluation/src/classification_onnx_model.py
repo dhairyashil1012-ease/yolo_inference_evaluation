@@ -162,16 +162,12 @@ def get_system_env_info():
 
 
 def get_model_details(onnx_model_path):
-    """
-    Extracts model specifications directly from the ONNX model structure and metadata.
-    Does not require an active PyTorch model context.
-    """
+
     onnx_model_path = Path(onnx_model_path)
     if not onnx_model_path.exists():
         return {
             "Model Architecture": "ONNX Runtime Engine",
             "Total Parameters": "Unknown",
-            "GFLOPs": "N/A",
             "File Size": "Unknown",
             "Number of Classes": "Unknown",
             "Class Names": "Unknown",

@@ -107,12 +107,9 @@ def get_system_env_info():
 
 
 def get_model_details(model, model_path):
-    """Extracts internal architecture specs, classes, and sizing from the YOLO model."""
     try:
-        gflops = f"{model.info()[3]:.2f}" if hasattr(model, 'info') else "Unknown"
         params = f"{sum(p.numel() for p in model.model.parameters()):,}"
     except Exception:
-        gflops = "N/A"
         params = "N/A"
 
     file_size_mb = f"{model_path.stat().st_size / (1024 * 1024):.2f} MB" if model_path.exists() else "Unknown"
@@ -123,7 +120,6 @@ def get_model_details(model, model_path):
     return {
         "Model Architecture": getattr(model.model, 'yaml', {}).get('type', 'YOLO-cls'),
         "Total Parameters": params,
-        "GFLOPs": gflops,
         "File Size": file_size_mb,
         "Number of Classes": num_classes,
         "Class Names": ", ".join(class_names),
