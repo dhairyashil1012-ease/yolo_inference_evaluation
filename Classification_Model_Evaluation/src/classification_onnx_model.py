@@ -8,6 +8,7 @@ import onnx
 import pynvml
 import torch
 import numpy as np
+import ultralytics  
 import platform
 from pathlib import Path
 from PIL import Image
@@ -15,7 +16,6 @@ from configparser import ConfigParser
 from ultralytics import YOLO
 import onnxruntime as ort
 import torchvision.transforms as transforms
-import ultralytics
 from src.report_generator import generate_pdf_report
 
 PROJECT_DIR = Path.cwd()
@@ -23,9 +23,6 @@ PROJECT_DIR = Path.cwd()
 config = ConfigParser()
 config.read(PROJECT_DIR / "config.txt")
 
-# ==========================================================
-# PATHS
-# ==========================================================
 MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
 IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
 OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ONNX_OUTPUT_DIR"]
@@ -38,6 +35,7 @@ LABEL_NAME = "label.txt"
 
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = YAML_DIR / LABEL_NAME
+
 REPORT_PDF_PATH = REPORT_DIR / "classification_onnx_inference_report.pdf"
 
 
@@ -332,32 +330,25 @@ def main():
         export_onnx_model(model)
         onnx_model_path = load_onnx_model(MODEL_DIR)
 
-    # Initialize NVML for accurate ONNX hardware monitoring
     has_nvml = False
     try:
         pynvml.nvmlInit()
-        # Monitor the primary GPU (index 0)
         nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
         has_nvml = True
     except Exception:
         print("Warning: NVML initialization failed. GPU memory tracking disabled.")
 
-    # Get baseline memory usage before inference starts
     baseline_mem = 0
     if has_nvml:
         baseline_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
 
-    # 1. Pipeline Execution + Granular Timing Captures
     batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
     
-    # Track memory during the execution phase
     raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy)
     
-    # Capture active memory usage right after execution 
     peak_mem_mb = 0
     if has_nvml:
         current_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
-        # Calculate delta memory used by ONNX runtime process
         peak_mem_mb = max(0, (current_mem - baseline_mem) / (1024 * 1024))
         pynvml.nvmlShutdown() # Clean up driver resources
 

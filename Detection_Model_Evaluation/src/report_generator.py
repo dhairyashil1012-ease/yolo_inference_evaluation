@@ -6,6 +6,7 @@ from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, Tabl
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 def generate_pdf_report(output_pdf_path, backend, config_data, performance_data, predictions):
+
     doc = SimpleDocTemplate(
         str(output_pdf_path),
         pagesize=letter,
@@ -54,13 +55,17 @@ def generate_pdf_report(output_pdf_path, backend, config_data, performance_data,
     story = []
 
     # Title & Subtitle
-    story.append(Paragraph(f"YOLO Classification {backend.upper()} Model Inference Report", title_style))
-    story.append(Paragraph(f"<b>Backend Engine:</b> {backend.upper()}", body_style))
+    backend_map = {"pt": "PyTorch", "onnx": "ONNX Runtime", "engine": "TensorRT (TRT)", "trt": "TensorRT (TRT)"}
+    display_backend = backend_map.get(backend.lower(), backend.upper())
+    
+    story.append(Paragraph(f"YOLO Detection {display_backend.upper()} Model Inference Report", title_style))
+    story.append(Paragraph(f"<b>Backend Engine:</b> {display_backend}", body_style))
     story.append(Spacer(1, 15))
 
     # PHASE 1: Configuration & System Metadata
     story.append(Paragraph("Phase 1: Configuration & System Metadata", h2_style))
     
+    # Safely extract Class Names so they don't break the table layout
     class_names_value = config_data.pop("Class Names", None)
     
     config_table_data = []
@@ -89,7 +94,7 @@ def generate_pdf_report(output_pdf_path, backend, config_data, performance_data,
         story.append(Paragraph(str(class_names_value), body_style))
         story.append(Spacer(1, 15))
 
-    # PHASE 2: Inference Performance Metrics (Includes Split Preprocess/Inference/Postprocess Times)
+    # PHASE 2: Inference Performance Metrics
     story.append(Paragraph("Phase 2: Inference Performance Metrics", h2_style))
     perf_table_data = [
         [Paragraph(f"<b>{k}</b>", body_style), Paragraph(str(v), body_style)] 
@@ -105,29 +110,49 @@ def generate_pdf_report(output_pdf_path, backend, config_data, performance_data,
     story.append(t2)
     story.append(Spacer(1, 15))
 
-    # PHASE 3: Detailed Predictions Table
+    # PHASE 3: Detailed Predictions Table (Formatted for Object Detection)
     story.append(Paragraph("Phase 3: Detailed Predictions Summary", h2_style))
     
     pred_table_data = [[
         Paragraph("<b>Image File</b>", header_style), 
-        Paragraph("<b>Predicted Class</b>", header_style), 
-        Paragraph("<b>Confidence</b>", header_style)
+        Paragraph("<b>Detected Objects (Confidence)</b>", header_style), 
+        Paragraph("<b>Bounding Boxes (xyxy)</b>", header_style)
     ]]
     
     for p in predictions:
+        detections = p.get('detections', [])
+        
+        if not detections:
+            objects_str = "<i>No detections</i>"
+            boxes_str = "-"
+        else:
+            obj_list = []
+            box_list = []
+            for det in detections:
+                conf = det['confidence']
+                conf_str = f"{conf:.1f}%" if isinstance(conf, (int, float)) else str(conf)
+                obj_list.append(f"{det['class_name']} ({conf_str})")
+                
+                box = det.get('box', [])
+                box_list.append(str(box) if box else "N/A")
+            
+            # Combine multi-detections using <br/> for ReportLab linebreaks inside the cell
+            objects_str = "<br/>".join(obj_list)
+            boxes_str = "<br/>".join(box_list)
+
         pred_table_data.append([
             Paragraph(p['file_name'], body_style),
-            Paragraph(p['class_name'], body_style),
-            Paragraph(f"{p['confidence']:.1f}%", body_style)
+            Paragraph(objects_str, body_style),
+            Paragraph(boxes_str, body_style)
         ])
         
-    t3 = Table(pred_table_data, colWidths=[230, 170, 130])
+    t3 = Table(pred_table_data, colWidths=[180, 200, 150])
     t3.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2B6CB0")),
         ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('PADDING', (0,0), (-1,-1), 5),
+        ('PADDING', (0,0), (-1,-1), 6),
         ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#F7FAFC")]),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+        ('VALIGN', (0,0), (-1,-1), 'TOP'),  # Align multi-line rows cleanly at the top
     ]))
     
     story.append(t3)

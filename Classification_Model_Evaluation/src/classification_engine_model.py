@@ -1,3 +1,4 @@
+
 import os
 import sys
 import time
@@ -31,7 +32,7 @@ LABEL_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
 REPORT_DIR=PROJECT_DIR/config['PATHS']["REPORT_OUTPUT_DIR"]
 MODEL_NAME = config["PATHS"]["ONNX_MODEL_NAME"]
 
-LABEL_NAME = "label.txt" 
+LABEL_NAME = config["PATHS"]["LABEL_NAME"]
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = LABEL_DIR / LABEL_NAME
 REPORT_PDF_PATH = REPORT_DIR / "classification_engine_inference_report.pdf"
@@ -102,24 +103,33 @@ def get_model_details(engine_model_path, label_path):
         with open(label_path, "r", encoding="utf-8") as f:
             class_names = [line.strip() for line in f if line.strip()]
 
-    # Deserialize Engine to probe internal static profiles
+  
     with open(engine_model_path, "rb") as f:
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
         context = engine.create_execution_context()
+
     inspector = engine.create_engine_inspector()
     inspector.execution_context = context # OPTIONAL
-    var1=inspector.get_layer_information(0, trt.LayerInformationFormat.JSON) # Print the information of the first layer in the engine.
-    var2=inspector.get_engine_information(trt.LayerInformationFormat.JSON)
-    var3=var1+var2
-    pattern = r'"Weights":\s*(\{[^}]+\})'
-    matches = re.findall(pattern, var3)
-    weighted_sum=0
-    for i in matches:
-        dict_data=json.loads(i)
-        w=dict_data["Count"]
-        weighted_sum+=w
 
+    pattern = r'"Weights":\s*(\{[^}]+\})'
+
+    weighted_sum=0
+
+
+    for idx in range(engine.num_layers):
+        try:
+            layer_info = inspector.get_layer_information(idx, trt.LayerInformationFormat.JSON)
+            matches = re.findall(pattern, layer_info)
+
+            for m in matches:
+                dict_data = json.loads(m)
+                weighted_sum += dict_data.get("Count",0)
+            
+        except Exception:
+            continue        
+
+    total_params = weighted_sum if weighted_sum > 0 else "N/A (Optimized Engine)"
 
     architecture = "YOLO (TensorRT Engine)"
     
@@ -144,7 +154,7 @@ def get_model_details(engine_model_path, label_path):
 
     return {
         "Model Architecture": architecture,
-        "Total Parameters": weighted_sum,
+        "Total Parameters": total_params,
         "File Size": file_size_mb,
         "Number of Classes": len(class_names) if class_names else "Unknown",
         "Class Names": ", ".join(class_names) if class_names else "Unknown",

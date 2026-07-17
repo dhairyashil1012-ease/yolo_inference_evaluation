@@ -259,7 +259,7 @@ def main():
         **model_details   
     }
     
-    pdf_report_path = OUTPUT_DIR / "pt_inference_report.pdf"
+
     generate_pdf_report(
         output_pdf_path=REPORT_PDF_PATH,
         backend="pt",

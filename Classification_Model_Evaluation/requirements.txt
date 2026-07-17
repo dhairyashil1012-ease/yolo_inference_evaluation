@@ -1,3 +1,54 @@
+# notebook
+# opencv-python
+# PyYAML
+# torch
+# torchvision
+# numpy
+# Pillow
+# tensorrt
+# ultralytics==8.4.75
+# matplotlib
+# cuda-python
+# onnx== 1.22.0
+# # onnxruntime==1.19.2
+# # onnxruntime-gpu
+# onnxruntime-gpu==1.19.2 --extra-index-url https://visualstudio.com
+# reportlab
+# pip uninstall -y onnxruntime onnxruntime-gpu && pip install onnxruntime-gpu --extra-index-url https://visualstudio.com
+# notebook
+# opencv-python
+# PyYAML
+# torch
+# torchvision
+# numpy
+# Pillow
+# tensorrt
+# ultralytics==8.4.75
+# matplotlib
+# cuda-python
+# onnx==1.22.0
+# reportlab
+# # 1. Install all base dependencies (excluding the broken onnxruntime mix)
+# pip install -r requirements.txt
+
+# # 2. Safely purge any leftover CPU versions
+# pip uninstall -y onnxruntime onnxruntime-gpu
+
+# # 3. Force-install the exact 1.19.2 GPU build linked against your container's CUDA toolkit
+# pip install onnxruntime-gpu==1.19.2 --extra-index-url https://visualstudio.com
+# notebook
+# opencv-python
+# PyYAML
+# torch
+# torchvision
+# numpy
+# Pillow
+# ultralytics==8.4.75
+# matplotlib
+# onnx==1.22.0
+# onnxruntime-gpu==1.19.2
+# reportlab
+
 notebook
 opencv-python
 PyYAML

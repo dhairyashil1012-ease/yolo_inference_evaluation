@@ -20,3 +20,74 @@ INPUT_WIDTH = 224
 INPUT_HEIGHT = 224
 
 ONNX_EXPORT_BATCH = 16
+
+
+
+
+
+
+
+
+
+
+
+def extract_and_sum_weights(layer_profile_data):
+    """
+    Parses TensorRT layer profile data to find all 'Weights' metadata dictionaries
+    and calculates the total sum of the weight counts.
+    """
+    weights_dicts = []
+    total_weights_count = 0
+
+    # Ensure data is an iterable list of layer dictionaries
+    if isinstance(layer_profile_data, list):
+        for layer in layer_profile_data:
+            # Check if layer is a dictionary and contains the 'Weights' key
+            if isinstance(layer, dict) and "Weights" in layer:
+                weight_info = layer["Weights"]
+                weights_dicts.append(weight_info)
+                
+                # Safely extract and sum the total number of weights (Count)
+                if "Count" in weight_info:
+                    total_weights_count += weight_info["Count"]
+                    
+    return weights_dicts, total_weights_count
+
+
+# ==========================================
+# EXAMPLE USAGE WITH YOUR DATA
+# ==========================================
+if __name__ == "__main__":
+    # Simulating your Python variable containing the parsed JSON data
+    my_python_variable = [
+        {
+            "Name": "/model.9/cv1/conv/Conv_output_0",
+            "Location": "Device",
+            "Dimensions": [-1, 256, 7, 7],
+            "Format/Datatype": "Float",
+            "ParameterType": "Convolution",
+            "Kernel": [1, 1],
+            "OutMaps": 256,
+            "Groups": 1,
+            "Weights": {"Type": "Float", "Count": 65536},  # <-- Target 1
+            "Bias": {"Type": "Float", "Count": 256},
+            "HasBias": 1,
+            "Metadata": "[ONNX Layer: /model.9/cv1/conv/Conv]"
+        },
+        {
+            "Name": "Reformatting CopyNode for Input Tensor...",
+            "LayerType": "NoOp",
+            "TacticValue": "0x0000000000000000",
+            "Metadata": ""
+            # No weights key here, will be safely skipped
+        }
+    ]
+
+    # Run the function
+    found_dictionaries, total_sum = extract_and_sum_weights(my_python_variable)
+
+    # Output Results
+    print("--- Extracted Weights Dictionaries ---")
+    print(found_dictionaries)
+    print("\n--- Grand Total Sum of Weights ---")
+    print(f"{total_sum:,} total elements")
