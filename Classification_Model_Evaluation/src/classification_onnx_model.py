@@ -134,8 +134,7 @@ def preprocess_onnx(folder_path):
     print()
 
     end_pre = time.perf_counter()
-    preprocess_time_ms = (end_pre - start_pre) * 1000
-
+    preprocess_time_ms = (end_pre - start_pre)
     return batch_numpy, image_files, preprocess_time_ms
 
 
@@ -247,12 +246,14 @@ def inference_onnx(onnx_model, batch_numpy):
     print("Execution Provider :", session.get_providers()[0])
     input_name = session.get_inputs()[0].name
 
-    # Start timer for pure core computation stage
+
     start_inf = time.perf_counter()
+
     outputs = session.run(None, {input_name: batch_numpy})
+
     end_inf = time.perf_counter()
 
-    inference_time_ms = (end_inf - start_inf) * 1000
+    inference_time_ms = (end_inf - start_inf) *1000
 
     return outputs[0], inference_time_ms
 
@@ -316,7 +317,7 @@ def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
         })
 
     end_post = time.perf_counter()
-    postprocess_time_ms = (end_post - start_post) * 1000
+    postprocess_time_ms = (end_post - start_post)
 
     return prediction_metadata, postprocess_time_ms
 
@@ -362,6 +363,7 @@ def main():
     # 2. Compute Structural Per-Image Timing Averages
     batch_size = len(image_files)
     avg_preprocess = preprocess_ms / batch_size
+    
     avg_inference = inference_ms / batch_size
     avg_postprocess = postprocess_ms / batch_size
     total_pipeline_ms = preprocess_ms + inference_ms + postprocess_ms
@@ -371,6 +373,7 @@ def main():
     print("ONNX RUNTIME PERFORMANCE")
     print("=" * 60)
     print(f"Total Images Processed : {batch_size}")
+    print(f"Inference Latency      :{inference_ms}")
     print(f"Total Pipeline Time    : {total_pipeline_ms:.2f} ms")
     print(f"Preprocess Latency     : {avg_preprocess:.2f} ms per image")
     print(f"Inference Latency      : {avg_inference:.2f} ms per image")
@@ -395,12 +398,13 @@ def main():
 
     perf_metrics = {
         "Total Images Processed": batch_size,
-        "Total Pipeline Time": f"{total_pipeline_ms:.2f} ms",
-        "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
-        "Inference Latency": f"{avg_inference:.2f} ms per image",
-        "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        "Throughput": f"{batch_size / (total_pipeline_ms / 1000):.2f} Images/sec",
-        "Peak Memory Usage": f"{peak_mem_mb:.2f} MB" if peak_mem_mb > 0 else "N/A"
+        "Inference Time in ms":f"{inference_ms}ms",
+        # "Total Pipeline Time": f"{total_pipeline_ms:.2f} s",
+        # "Preprocess Latency": f"{avg_preprocess:.2f} s per image",
+        # "Inference Latency": f"{avg_inference:.2f} s per image",
+        # "Postprocess Latency": f"{avg_postprocess:.2f} s per image",
+        # "Throughput": f"{batch_size / (total_pipeline_ms / 1000):.2f} Images/sec",
+        # "Peak Memory Usage": f"{peak_mem_mb:.2f} MB" if peak_mem_mb > 0 else "N/A"
     }
     
     # 4. Generate Structured PDF Report

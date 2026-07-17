@@ -284,7 +284,9 @@ def inference_engine(batch_numpy, engine_model):
     check_cuda(cudart.cudaMemcpyAsync(host_output.ctypes.data, d_output, host_output.nbytes, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, stream))
     check_cuda(cudart.cudaStreamSynchronize(stream))
 
-    inference_time = (time.perf_counter() - start) * 1000
+    inference_time = (time.perf_counter() - start)  * 1000
+
+    
 
   
     _, free_mem, total_mem = cudart.cudaMemGetInfo()
@@ -400,17 +402,19 @@ def main():
     total_run_time_ms = preprocess_ms + inference_ms + postprocess_ms
     batch_size = len(image_files)
     avg_preprocess = preprocess_ms / batch_size
+    inference_time_in_second = inference_ms
     avg_inference = inference_ms / batch_size
     avg_postprocess = postprocess_ms / batch_size
     
     performance_metadata = {
         "Total Images Processed": str(total_images),
-        "Total Run Time": f"{total_run_time_ms:.2f} ms",
-        "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
-        "Inference Latency": f"{avg_inference:.2f} ms per image",
-        "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f" {peak_gpu_mb:.2f} MB"
+        # "Total Run Time": f"{total_run_time_ms:.2f} ms",
+        "Inference Time in ms": f"{inference_time_in_second}ms",
+        # "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
+        # "Inference Latency": f"{avg_inference:.2f} ms per image",
+        # "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
+        # "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
+        # "Peak Memory Usage": f" {peak_gpu_mb:.2f} MB"
     }
 
   

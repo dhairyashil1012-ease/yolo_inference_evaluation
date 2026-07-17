@@ -140,9 +140,10 @@ def inference(model, folder_path):
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-    start = time.perf_counter()
+    # start = time.perf_counter()
     device = 0 if torch.cuda.is_available() else "cpu"
 
+    start = time.perf_counter()
     # Run predictions across the whole source directory
     results = model.predict(
         source=str(folder_path),
@@ -150,17 +151,20 @@ def inference(model, folder_path):
         device=device,
         verbose=False,
     )
-
+    end = time.perf_counter()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-    end = time.perf_counter()
+    # end = time.perf_counter()
+    # total_time_ms = (end - start) * 1000
+
     total_time_ms = (end - start) * 1000
     batch_size = len(results)
     
     # Extract internal speed breakdown from YOLO results dictionary (averaging per image)
     avg_preprocess_ms = sum(r.speed.get('preprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-    avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) / batch_size if batch_size > 0 else 0
+    avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) 
+    inference_time_from_results = sum(r.speed.get('inference',0.0) for r in results)
     avg_postprocess_ms = sum(r.speed.get('postprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
     
     # Measure Memory Usage
@@ -174,12 +178,13 @@ def inference(model, folder_path):
 
     perf_metrics = {
         "Total Images Processed": batch_size,
-        "Total Run Time": f"{total_time_ms:.2f} ms",
-        "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms per image",
-        "Inference Latency": f"{avg_inference_ms:.2f} ms per image",
-        "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms per image",
-        "Throughput": f"{batch_size/(end-start):.2f} Images/sec",
-        "Peak Memory Usage": memory_usage
+        "Inference Time in ms using time": f"{total_time_ms:.2f} ms",
+        "Inference Time in ms_from_results": f"{inference_time_from_results:.2f}ms"
+        # "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms per image",
+        # "Inference Latency": f"{avg_inference_ms:.2f} ms per image",
+        # "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms per image",
+        # "Throughput": f"{batch_size/(end-start):.2f} Images/sec",
+        # "Peak Memory Usage": memory_usage
     }
 
     print("\n" + "=" * 60)
