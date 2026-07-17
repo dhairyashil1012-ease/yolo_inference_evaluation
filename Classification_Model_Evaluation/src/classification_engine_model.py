@@ -2,15 +2,17 @@ import os
 import sys
 import time
 import cv2
-import json
-import ast
-import re
 import platform
 import subprocess
+import torch
+from PIL import Image
 import numpy as np
 from pathlib import Path
+import torchvision.transforms as transforms
 from configparser import ConfigParser
-
+import re
+import json
+import ast
 import tensorrt as trt
 from cuda.bindings import runtime as cudart
 from src.report_generator import generate_pdf_report
@@ -55,16 +57,15 @@ print(f"Output     : {OUTPUT_DIR}")
 print(f"Input Size : {INPUT_SIZE}")
 
 
-# -----------------------------
-# Metadata Extraction Functions (CHANGED for TensorRT Engine)
-# -----------------------------
+
 def get_system_env_info():
+
     try:
         _, device = cudart.cudaGetDevice()
         _, prop = cudart.cudaGetDeviceProperties(device)
         device_model = prop.name.decode("utf-8")
         
-     
+        # Pull driver capabilities for versioning mapping
         err, cuda_version_int = cudart.cudaRuntimeGetVersion()
         cuda_version = f"{cuda_version_int // 1000}.{(cuda_version_int % 1000) // 10}" if err == cudart.cudaError_t.cudaSuccess else "Unknown"
     except Exception:
@@ -151,15 +152,13 @@ def get_model_details(engine_model_path, label_path):
     }
 
 
-# -----------------------------
-# Core Pipeline Processing Block
-# -----------------------------
 def load_onnx_model(model_dir):
     pathlist = Path(model_dir).glob("**/*.onnx")
     filelist = sorted([str(file) for file in pathlist])
     if len(filelist) == 0:
         raise FileNotFoundError("No ONNX model found to export engine from.")
-    return filelist[-1]
+    onnx_model = filelist[-1]
+    return onnx_model
 
 
 def export_engine_model(onnx_model_p):
@@ -182,7 +181,9 @@ def load_engine_model(model_dir):
     filelist = sorted([str(file) for file in pathlist])
     if len(filelist) == 0:
         raise FileNotFoundError("No engine model found.")
-    return filelist[-1]
+    engine_model = filelist[-1]
+    print(f"engine Model : {engine_model}")
+    return engine_model
 
 
 def check_cuda(err):
@@ -192,8 +193,16 @@ def check_cuda(err):
         raise RuntimeError(f"CUDA Error : {err}")
 
 
+
 def preprocess_engine(image_folder, input_size):
-    start_time = time.perf_counter()
+    start_pre = time.perf_counter()
+
+    transform = transforms.Compose([
+        transforms.Resize(input_size),
+        transforms.ToTensor(),
+    ])
+    
+    # Read image filenames
     image_files = sorted([
         file for file in os.listdir(image_folder)
         if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
@@ -203,21 +212,31 @@ def preprocess_engine(image_folder, input_size):
         raise ValueError("No images found in the specified folder.")
 
     batch_images = []
+
+    print("=" * 60)
+    print("PREPROCESS")
+    print("=" * 60)
+
     for image_name in image_files:
         image_path = os.path.join(image_folder, image_name)
-        img = cv2.imread(image_path)
-        if img is None:
-            continue
-        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        img = cv2.resize(img, (input_size[1], input_size[0]))
-        img = img.astype(np.float32) / 255.0
-        img = img.transpose(2, 0, 1)  # HWC -> CHW
-        batch_images.append(img)
+        image = Image.open(image_path).convert("RGB")
+        tensor = transform(image)
+        batch_images.append(tensor)
 
-    batch_numpy = np.stack(batch_images, axis=0)
-    preprocess_time = (time.perf_counter() - start_time) * 1000
-    
-    return batch_numpy, image_files, preprocess_time
+    # Stack into batch
+    batch_tensor = torch.stack(batch_images, dim=0)
+
+    # Convert to NumPy
+    batch_numpy = batch_tensor.numpy().astype(np.float32)
+
+    print(f"Number of Images : {len(image_files)}")
+    print(f"Input Shape      : {batch_numpy.shape}")
+    print()
+
+    end_pre = time.perf_counter()
+    preprocess_time_ms = (end_pre - start_pre) * 1000
+
+    return batch_numpy, image_files, preprocess_time_ms
 
 
 def inference_engine(batch_numpy, engine_model):
@@ -257,7 +276,7 @@ def inference_engine(batch_numpy, engine_model):
 
     inference_time = (time.perf_counter() - start) * 1000
 
-    # Read hardware memory allocations
+  
     _, free_mem, total_mem = cudart.cudaMemGetInfo()
     peak_gpu_usage_mb = (total_mem - free_mem) / (1024 * 1024)
 
@@ -312,6 +331,7 @@ def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
     return prediction_results, postprocess_time
 
 
+
 # -----------------------------
 # Main Execution Entry Point
 # -----------------------------
@@ -326,6 +346,7 @@ def main():
         engine_model_path = load_engine_model(MODEL_DIR)
         print(f"Using newly created engine: {engine_model_path}")
 
+    # 1. Run Pipeline and Extract execution intervals
     batch_numpy, image_files, preprocess_ms = preprocess_engine(
         image_folder=IMAGE_DIR,
         input_size=INPUT_SIZE,
@@ -343,11 +364,10 @@ def main():
         txt_label_path=LABEL_PATH,
     )
 
-    # 2. Collect Environment Metadata
+
     env_info = get_system_env_info()
     model_details = get_model_details(engine_model_path, LABEL_PATH)
 
-    # 3. Merge Metadata into one configuration block
     config_metadata = {
         "Model Path": str(engine_model_path),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
@@ -366,7 +386,6 @@ def main():
         "Class Names": model_details["Class Names"]
     }
 
-    # 4. Compile Performance Analytics Dictionary
     total_images = len(image_files)
     total_run_time_ms = preprocess_ms + inference_ms + postprocess_ms
     batch_size = len(image_files)
@@ -381,10 +400,10 @@ def main():
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
         "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f"{peak_gpu_mb:.2f} MB"
+        "Peak Memory Usage": f" {peak_gpu_mb:.2f} MB"
     }
 
-
+  
     print("\nProcessing complete. Dispatching telemetry payloads to PDF compiler...")
     
     # Example Call Structure:
