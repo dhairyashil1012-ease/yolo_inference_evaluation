@@ -132,7 +132,6 @@ def load_model(model_path):
 
 
 def preprocess_onnx(folder_path, sync_cuda=False):
-
     prof = Profile(sync_cuda=sync_cuda)
     
     with prof:
@@ -284,8 +283,7 @@ def get_model_details(onnx_model_path):
 
 
 
-# Inference Code
-def inference_onnx(onnx_model, batch_numpy,sync_cuda=False):
+def inference_onnx(onnx_model, batch_numpy, sync_cuda=False):
     ort.preload_dlls()
     opts = ort.SessionOptions()
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
@@ -299,22 +297,13 @@ def inference_onnx(onnx_model, batch_numpy,sync_cuda=False):
     print("Execution Provider :", session.get_providers()[0])
     input_name = session.get_inputs()[0].name
 
-
-    # start_inf = time.perf_counter()
     prof = Profile(sync_cuda=sync_cuda)
-    
     with prof:
         outputs = session.run(None, {input_name: batch_numpy})
 
-    # end_inf = time.perf_counter()
     inference_time_ms = prof.t * 1000
-    # inference_time_ms = (end_inf - start_inf) *1000
-
     return outputs[0], inference_time_ms
 
-
-
-# Postproces
 
 def postprocess_onnx(predictions, image_files, folder_path, txt_label_path, sync_cuda=False):
     prof = Profile(sync_cuda=sync_cuda)
@@ -478,7 +467,7 @@ def main():
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        "Throughput": f"{(batch_size / (inference_ms / 1000.0)):.2f} Images/sec",
+        "Throughput": f"{(batch_size / (total_pipeline_ms / 1000.0)):.2f} Images/sec",
         "Peak Memory Usage": f" {peak_mem_mb:.2f} MB"
     }
 
