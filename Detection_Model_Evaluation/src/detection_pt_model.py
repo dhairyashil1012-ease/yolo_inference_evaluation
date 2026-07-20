@@ -26,8 +26,8 @@ MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
 IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
 OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["PT_OUTPUT_DIR"]
 REPORT_DIR=PROJECT_DIR/config['PATHS']["REPORT_OUTPUT_DIR"]
-
 MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
+
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 REPORT_PDF_PATH = REPORT_DIR / "detection_pt_inference_report.pdf"
 
@@ -41,21 +41,37 @@ IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
-# ==========================================================
-# SYSTEM & MODEL METADATA EXTRACTION FUNCTIONS
-# ==========================================================
+
 
 def get_system_env_info():
-    
     device_model = "CPU"
     cuda_version = "N/A"
     
     if torch.cuda.is_available():
         device_model = torch.cuda.get_device_name(0)
         cuda_version = torch.version.cuda
+        
+    # Standard fallback
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    # Accurate Linux distribution detection using built-in tools
+    if platform.system() == "Linux":
+        try:
+            # Works natively in Python 3.10+
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            # Safe manual fallback for older Python versions (< 3.10)
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            # Extract the string inside the quotes
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
     
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS": os_name,
         "Python Version": sys.version.split()[0],
         "PyTorch Version": torch.__version__,
         "Ultralytics Version": ultralytics.__version__,
@@ -158,6 +174,7 @@ def preprocess(folder_path):
     return image_paths
 
 
+
 def inference(model, folder_path):
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
@@ -173,26 +190,25 @@ def inference(model, folder_path):
     start = time.perf_counter()
     device = 0 if torch.cuda.is_available() else "cpu"
 
+    # --- HIGH CONFIDENCE FILTER APPLIED HERE ---
     results = model.predict(
         source=str(folder_path),
         imgsz=INPUT_SIZE,
         device=device,
         verbose=False,
+        conf=0.60,  # Filters out any detections below 60% confidence globally
     )
 
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-
     end = time.perf_counter()
     total_time_ms = (end - start) * 1000
     batch_size = len(results)
-
-
+    inference_time_from_results = sum(r.speed.get('inference', 0.0) for r in results)
     avg_preprocess_ms = sum(r.speed.get('preprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
     avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) / batch_size if batch_size > 0 else 0
     avg_postprocess_ms = sum(r.speed.get('postprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-
 
     # Measure Memory Usage
     if torch.cuda.is_available():
@@ -205,10 +221,11 @@ def inference(model, folder_path):
 
     perf_metrics = {
         "Total Images Processed": batch_size,
-        "Total Run Time": f"{total_time_ms:.2f} ms",
-        "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms per image",
-        "Inference Latency": f"{avg_inference_ms:.2f} ms per image",
-        "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms per image",
+        "Inference Time (time.perf_counter)": f"{total_time_ms:.2f} ms",
+        "Inference Time (YOLO Results)": f"{inference_time_from_results:.2f} ms",
+        # "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms per image",
+        # "Inference Latency": f"{avg_inference_ms:.2f} ms per image",
+        # "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms per image",
         "Throughput": f"{batch_size/(end-start):.2f} Images/sec",
         "Peak Memory Usage": memory_usage
     }
@@ -220,7 +237,6 @@ def inference(model, folder_path):
         print(f"{k:<30}: {v}")
 
     return results, perf_metrics
-
 
 def postprocess(results, image_paths):
     print("\n" + "=" * 60)
@@ -289,7 +305,7 @@ def main():
 
     # Merge into the final corporate reporting configuration structure
     config_dict = {
-        "Model Path": str(MODEL_PATH),
+        "Model Name": str(MODEL_NAME),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),

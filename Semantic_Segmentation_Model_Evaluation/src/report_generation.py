@@ -1,151 +1,160 @@
-import sys
+import datetime
 from pathlib import Path
 from reportlab.lib.pagesizes import letter
 from reportlab.lib import colors
 from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, KeepTogether
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.graphics.shapes import Drawing, Rect, String
-from reportlab.graphics.charts.barcharts import VerticalBarChart
 
 def generate_pdf_report(output_pdf_path, backend, config_data, performance_data, predictions):
-    """
-    Generates a structured PDF report containing metadata, performance metrics, and predictions.
-    """
-    # 1. Page setup
+    # Initialize Document Geometry
     doc = SimpleDocTemplate(
         str(output_pdf_path),
         pagesize=letter,
-        rightMargin=40, leftMargin=40, topMargin=40, bottomMargin=40
+        rightMargin=40, leftMargin=40,
+        topMargin=40, bottomMargin=40
     )
     
     styles = getSampleStyleSheet()
     
-    # Custom Styles
-    title_style = ParagraphStyle(
-        'ReportTitle',
-        parent=styles['Heading1'],
-        fontSize=24,
-        leading=28,
-        textColor=colors.HexColor("#1A365D"),
-        spaceAfter=15
-    )
+    # Define Custom Corporate Color Profiles
+    primary_color = colors.HexColor("#1A365D")    # Dark Slate Blue
+    secondary_color = colors.HexColor("#2B6CB0")  # Teal Accent Blue
+    text_dark = colors.HexColor("#2D3748")        # Charcoal
+    bg_light = colors.HexColor("#F7FAFC")         # Soft Gray Backdrops
+    accent_green = colors.HexColor("#2F855A")     # Forest Green
     
-    h2_style = ParagraphStyle(
-        'SectionHeader',
-        parent=styles['Heading2'],
-        fontSize=14,
-        leading=18,
-        textColor=colors.HexColor("#2C5282"),
-        spaceBefore=12,
-        spaceAfter=6,
+    # Establish Standardized Layout Typography Styles
+    title_style = ParagraphStyle(
+        'DocTitle', parent=styles['Heading1'],
+        fontSize=24, leading=28, textColor=primary_color, spaceAfter=6
+    )
+    subtitle_style = ParagraphStyle(
+        'DocSubtitle', parent=styles['Normal'],
+        fontSize=10, leading=14, textColor=colors.HexColor("#718096"), spaceAfter=20
+    )
+    h1_style = ParagraphStyle(
+        'SectionH1', parent=styles['Heading2'],
+        fontSize=14, leading=18, textColor=primary_color, spaceBefore=14, spaceAfter=8,
         keepWithNext=True
     )
-    
     body_style = ParagraphStyle(
-        'ReportBody',
-        parent=styles['Normal'],
-        fontSize=10,
-        leading=14,
-        textColor=colors.HexColor("#2D3748")
+        'TableBody', parent=styles['Normal'],
+        fontSize=9, leading=12, textColor=text_dark
+    )
+    header_style = ParagraphStyle(
+        'TableHeader', parent=styles['Normal'],
+        fontSize=9, leading=12, textColor=colors.white, fontName='Helvetica-Bold'
     )
 
     story = []
 
-    # Title & Subtitle
-    story.append(Paragraph(f"YOLO Classification {backend.upper()} Model Inference Report", title_style))
-    story.append(Paragraph(f"<b>Backend Engine:</b> {backend.upper()}", body_style))
-    story.append(Spacer(1, 15))
+    # Title & Header Segment
+    story.append(Paragraph("YOLO26n-sem Performance & Inference Report", title_style))
+    current_time = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    story.append(Paragraph(f"Generated on: {current_time} | Execution Engine: {backend.upper()}", subtitle_style))
+    story.append(Spacer(1, 10))
 
-    # PHASE 1: Configuration Metadata
-    story.append(Paragraph("Phase 1: Configuration Metadata", h2_style))
-    config_table_data = [
-        [Paragraph(f"<b>{k}</b>", body_style), Paragraph(str(v), body_style)] 
-        for k, v in config_data.items()
-    ]
-    t1 = Table(config_table_data, colWidths=[150, 380])
-    t1.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#F7FAFC")),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('PADDING', (0,0), (-1,-1), 6),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(t1)
-    story.append(Spacer(1, 15))
-
-    # PHASE 2: Inference Performance Metrics
-    story.append(Paragraph("Phase 2: Inference Performance Metrics", h2_style))
-    perf_table_data = [
-        [Paragraph(f"<b>{k}</b>", body_style), Paragraph(str(v), body_style)] 
-        for k, v in performance_data.items()
-    ]
-    t2 = Table(perf_table_data, colWidths=[150, 380])
-    t2.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.HexColor("#EDF2F7")),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#CBD5E0")),
-        ('PADDING', (0,0), (-1,-1), 6),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-    ]))
-    story.append(t2)
-    story.append(Spacer(1, 15))
-
-    # PHASE 3: Chart Visualization
-    story.append(Paragraph("Phase 3: Confidence Score Analytics", h2_style))
+    # SECTION 1: SYSTEM ENVIRONMENT & MODEL SPECIFICATIONS
+    story.append(Paragraph("1. System Configuration & Architecture Specs", h1_style))
     
-    # Extract data for the chart
-    names = [p['file_name'] for p in predictions]
-    confidences = [p['confidence'] for p in predictions]
-    
-    if confidences:
-        # Drawing canvas for ReportLab Graphics
-        d = Drawing(530, 160)
-        chart = VerticalBarChart()
-        chart.x = 40
-        chart.y = 25
-        chart.height = 110
-        chart.width = 460
-        chart.data = [confidences]
-        chart.categoryAxis.categoryNames = [n if len(n) < 12 else n[:10]+"..." for n in names]
-        chart.categoryAxis.labels.fontSize = 8
-        chart.categoryAxis.labels.dy = -10
-        chart.valueAxis.valueMin = 0
-        chart.valueAxis.valueMax = 100
-        chart.valueAxis.valueStep = 20
-        chart.valueAxis.labels.fontSize = 8
-        chart.bars[0].fillColor = colors.HexColor("#3182CE")
-        d.add(chart)
-        story.append(d)
-    else:
-        story.append(Paragraph("No prediction data available to chart.", body_style))
-    story.append(Spacer(1, 15))
-
-    # PHASE 4: Detailed Predictions Table
-    story.append(Paragraph("Phase 4: Detailed Predictions Summary", h2_style))
-    pred_table_data = [[
-        Paragraph("<b>Image File</b>", body_style), 
-        Paragraph("<b>Predicted Class</b>", body_style), 
-        Paragraph("<b>Confidence</b>", body_style)
-    ]]
-    
-    for p in predictions:
-        pred_table_data.append([
-            Paragraph(p['file_name'], body_style),
-            Paragraph(p['class_name'], body_style),
-            Paragraph(f"{p['confidence']:.1f}%", body_style)
+    sys_table_data = []
+    # Pivot dictionary key-values into dual columns for clean display
+    for label, val in config_data.items():
+        sys_table_data.append([
+            Paragraph(f"<b>{label}</b>", body_style),
+            Paragraph(str(val), body_style)
         ])
         
-    t3 = Table(pred_table_data, colWidths=[230, 170, 130])
-    t3.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,0), colors.HexColor("#2B6CB0")),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.HexColor("#E2E8F0")),
-        ('PADDING', (0,0), (-1,-1), 5),
-        ('ROWBACKGROUNDS', (0,1), (-1,-1), [colors.white, colors.HexColor("#F7FAFC")]),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
+    sys_table = Table(sys_table_data, colWidths=[200, 332])
+    sys_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), bg_light),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+    ]))
+    story.append(sys_table)
+    story.append(Spacer(1, 15))
+
+    # SECTION 2: PERFORMANCE METRICS
+    story.append(Paragraph("2. Pipeline Speed & Throughput Performance", h1_style))
+    
+    perf_table_data = []
+    for label, val in performance_data.items():
+        perf_table_data.append([
+            Paragraph(f"<b>{label}</b>", body_style),
+            Paragraph(str(val), body_style)
+        ])
+        
+    perf_table = Table(perf_table_data, colWidths=[200, 332])
+    perf_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), bg_light),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 6),
+        ('TOPPADDING', (0, 0), (-1, -1), 6),
+        ('LEFTPADDING', (0, 0), (-1, -1), 10),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+        ('LINEBELOW', (0, 0), (-1, -1), 0.5, colors.HexColor("#E2E8F0")),
+    ]))
+    story.append(perf_table)
+    story.append(Spacer(1, 15))
+
+    # SECTION 3: IMAGE-LEVEL SEMANTIC SEGMENTATION BREAKDOWN
+    story.append(Paragraph("3. Image-Level Class Mask Breakdown", h1_style))
+    
+    # Table Header Design Layout
+    predictions_table_data = [[
+        Paragraph("Target File Context", header_style),
+        Paragraph("Segmented Class Name", header_style),
+        Paragraph("Pixel Spatial Area", header_style),
+        Paragraph("Total Area Coverage", header_style)
+    ]]
+
+    for img_record in predictions:
+        filename = img_record["file_name"]
+        segmentations = img_record.get("segmentations", [])
+        
+        if not segmentations:
+            predictions_table_data.append([
+                Paragraph(filename, body_style),
+                Paragraph("<i>No Active Mask Detections</i>", body_style),
+                Paragraph("0.0%", body_style),
+                Paragraph("0 px", body_style),
+                Paragraph("0.00%", body_style)
+            ])
+            continue
+
+        for idx, seg in enumerate(segmentations):
+            # Show the filename only on the first row of its segmentations for visual clarity
+            display_name = filename if idx == 0 else ""
+            
+            predictions_table_data.append([
+                Paragraph(display_name, body_style),
+                Paragraph(f"<b>{seg['class_name']}</b>", body_style),
+                Paragraph(f"{seg['pixel_area']:,} px", body_style),
+                Paragraph(str(seg['coverage']), body_style)
+            ])
+
+    # Instantiate predictions overview table grid bounds
+    pred_table = Table(predictions_table_data, colWidths=[140, 112, 80, 100, 100], repeatRows=1)
+    pred_table.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), primary_color),
+        ('ALIGN', (0, 0), (-1, -1), 'LEFT'),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('LEFTPADDING', (0, 0), (-1, -1), 6),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 6),
+        ('GRID', (0, 0), (-1, -1), 0.5, colors.HexColor("#CBD5E0")),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, bg_light])
     ]))
     
-    # We wrap the last table in a KeepTogether so it doesn't awkwardly fracture pages if unnecessary
-    story.append(KeepTogether(t3))
+    story.append(pred_table)
 
-    # Build the document
+    # Compile flowables cleanly into target destination
     doc.build(story)
-    print(f"\nPDF Report successfully generated at: {output_pdf_path}")
+    print(f"PDF Report successfully compiled and written to: {output_pdf_path}")

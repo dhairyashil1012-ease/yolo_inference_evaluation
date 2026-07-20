@@ -6,12 +6,12 @@ import cv2
 import torch
 import numpy as np
 import onnx
+import ultralytics
 import onnxruntime as ort
 import pynvml
+import threading
 import ast
-import torchvision.transforms as transforms
 from pathlib import Path
-from PIL import Image
 from configparser import ConfigParser
 
 # --- IMPORT REPORT GENERATOR ---
@@ -41,7 +41,6 @@ LABEL_PATH = LABEL_DIR / LABEL_NAME
 
 REPORT_PDF_PATH = REPORT_DIR / "detection_onnx_inference_report.pdf"
 
-
 INPUT_SIZE = (
     config.getint("MODEL", "INPUT_HEIGHT"),
     config.getint("MODEL", "INPUT_WIDTH"),
@@ -61,31 +60,40 @@ print(f"Input Size : {INPUT_SIZE}")
 print("=" * 60)
 
 
-
-
-
 def get_system_env_info():
-
     device_model = "CPU"
     cuda_version = "N/A"
     
     if torch.cuda.is_available():
         device_model = torch.cuda.get_device_name(0)
         cuda_version = torch.version.cuda
+        
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    if platform.system() == "Linux":
+        try:
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
     
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS": os_name,
         "Python Version": sys.version.split()[0],
-        "ONNX Runtime Version": ort.__version__,
+        "PyTorch Version": torch.__version__,
+        "Ultralytics Version": ultralytics.__version__,
         "Inference Device": device_model,
         "CUDA Version": cuda_version
     }
 
 
 def get_model_details(onnx_model_path, label_path):
-
     onnx_model_path = Path(onnx_model_path)
-    label_path = Path(label_path)
     
     if not onnx_model_path.exists():
         return {
@@ -98,32 +106,17 @@ def get_model_details(onnx_model_path, label_path):
         }
 
     model_graph = onnx.load(str(onnx_model_path))
-    session = ort.InferenceSession(str(onnx_model_path),
-                                   providers=['CPUExecutionProvider'])
+    session = ort.InferenceSession(str(onnx_model_path), providers=['CPUExecutionProvider'])
     
     metadata = session.get_modelmeta().custom_metadata_map
 
     task = metadata.get("task")
-    if task:
-        architecture = f"YOLO ({task.capitalize()})"
-    else:
-        architecture = model_graph.graph.name or "ONNX Model"
-
+    architecture = f"YOLO ({task.capitalize()})" if task else (model_graph.graph.name or "ONNX Model")
     total_params = sum(np.prod(tensor.dims) for tensor in model_graph.graph.initializer)
 
     dtypes = {onnx.TensorProto.DataType.Name(t.data_type) for t in model_graph.graph.initializer}
-    if "FLOAT16" in dtypes:
-        precision = "FP16"
-    elif "FLOAT" in dtypes:
-        precision = "FP32"
-    elif "INT8" in dtypes:
-        precision = "INT8"
-    else:
-        precision = "Unknown"
-
-
+    precision = "FP16" if "FLOAT16" in dtypes else "FP32" if "FLOAT" in dtypes else "INT8" if "INT8" in dtypes else "Unknown"
     file_size_mb = f"{onnx_model_path.stat().st_size / (1024 * 1024):.2f} MB"
-
 
     class_names = []
     num_classes = 'Unknown'
@@ -131,14 +124,10 @@ def get_model_details(onnx_model_path, label_path):
     if "names" in metadata:
         try:
             names = ast.literal_eval(metadata['names'])
-            if isinstance(names,dict):
-                class_names = list(names.values())
-            elif isinstance(names,list):
-                class_names = names
-            num_classes =len(class_names)
+            class_names = list(names.values()) if isinstance(names, dict) else names
+            num_classes = len(class_names)
         except Exception:
             pass
-
 
     return {
         "Model Architecture": architecture,
@@ -148,8 +137,6 @@ def get_model_details(onnx_model_path, label_path):
         "Class Names": ", ".join(class_names) if class_names else "Unknown",
         "Precision Mode": precision
     }
-
-
 
 
 def load_model(model_path):
@@ -188,13 +175,8 @@ def load_onnx_model(model_dir):
 
 
 def preprocess_onnx(folder_path):
-    
+    # Performance optimized NumPy & OpenCV pipeline 
     start_pre = time.perf_counter()
-
-    transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
-        transforms.ToTensor(),
-    ])
 
     image_files = sorted([
         file for file in os.listdir(folder_path)
@@ -212,23 +194,30 @@ def preprocess_onnx(folder_path):
 
     for file in image_files:
         image_path = os.path.join(folder_path, file)
-        image = Image.open(image_path).convert("RGB")
-        tensor = transform(image)
-        image_list.append(tensor)
+        img = cv2.imread(image_path)
+        if img is None:
+            continue
+        
+        img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img = cv2.resize(img, (INPUT_SIZE[1], INPUT_SIZE[0]))
+        img = img.astype(np.float32) / 255.0
+        img = img.transpose(2, 0, 1)
+        image_list.append(img)
 
-    batch_tensor = torch.stack(image_list)
-    batch_numpy = batch_tensor.numpy().astype(np.float32)
+    batch_numpy = np.stack(image_list, axis=0)
 
     print("Number of Images :", len(image_files))
     print("Batch Shape      :", batch_numpy.shape)
     print("Input dtype      :", batch_numpy.dtype)
     print()
+    
     end_pre = time.perf_counter()
     preprocess_time_ms = (end_pre - start_pre) * 1000
     return batch_numpy, image_files, preprocess_time_ms
 
 
 def inference_onnx(onnx_model, batch_numpy):
+    ort.preload_dlls()
     opts = ort.SessionOptions()
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
     
@@ -238,30 +227,30 @@ def inference_onnx(onnx_model, batch_numpy):
         sess_options=opts
     )
     
-    active_provider = session.get_providers()[0]
-    print("Execution Provider :", active_provider)
-
+    print("Execution Provider :", session.get_providers()[0])
     input_name = session.get_inputs()[0].name
+
 
     start = time.perf_counter()
     outputs = session.run(None, {input_name: batch_numpy})
     end = time.perf_counter()
 
     inference_time_ms = (end - start) * 1000
-
     return outputs[0], inference_time_ms
 
 
-
 def postprocess_onnx(outputs, image_files, image_folder, label_path, confidence_threshold=0.6, input_size=640):
-    start_post=time.perf_counter()
+    start_post = time.perf_counter()
+
+    print("=" * 60)
+    print("POSTPROCESS")
+    print("=" * 60)
 
     if isinstance(input_size, int):
         input_size = (input_size, input_size)
 
     input_h, input_w = input_size
 
-    # Load class names
     with open(label_path, "r", encoding="utf-8") as f:
         class_names = [line.strip() for line in f if line.strip()]
 
@@ -271,7 +260,6 @@ def postprocess_onnx(outputs, image_files, image_folder, label_path, confidence_
         image_path = os.path.join(image_folder, image_name)
         image = cv2.imread(image_path)
         if image is None:
-            print(f"Unable to read {image_path}")
             continue
 
         H, W = image.shape[:2]
@@ -279,14 +267,10 @@ def postprocess_onnx(outputs, image_files, image_folder, label_path, confidence_
         scale_y = H / input_h
 
         detections = outputs[img_idx]
+        image_record = {"file_name": image_name, "detections": []}
         
-        image_record = {
-            "file_name": image_name,
-            "detections": []
-        }
-
-       
-        has_detections = False
+        # Dictionary filtering logic to keep only the highest confidence match per class
+        best_detections = {}
 
         for det in detections:
             if len(det) >= 6:
@@ -297,26 +281,36 @@ def postprocess_onnx(outputs, image_files, image_folder, label_path, confidence_
             if score < confidence_threshold:
                 continue
 
-            has_detections = True
             cls = int(cls)
             class_name = class_names[cls] if cls < len(class_names) else f"ID_{cls}"
+            confidence_pct = float(score) * 100 if score <= 1.0 else float(score)
 
-            # Rescale coordinate pairs back to source dimensions
+            if class_name not in best_detections or confidence_pct > best_detections[class_name]["confidence"]:
+                best_detections[class_name] = {
+                    "class_name": class_name,
+                    "confidence": confidence_pct,
+                    "raw_score": score,
+                    "box": [x1, y1, x2, y2]
+                }
+
+        has_detections = len(best_detections) > 0
+
+        for class_name, item in best_detections.items():
+            x1, y1, x2, y2 = item["box"]
+            
             x1_scaled = max(0, min(int(x1 * scale_x), W - 1))
             y1_scaled = max(0, min(int(y1 * scale_y), H - 1))
             x2_scaled = max(0, min(int(x2 * scale_x), W - 1))
             y2_scaled = max(0, min(int(y2 * scale_y), H - 1))
 
-            # Store detection dictionaries
             image_record["detections"].append({
-                "class_name": class_name,
-                "confidence": float(score) * 100 if score <= 1.0 else float(score),
+                "class_name": item["class_name"],
+                "confidence": item["confidence"],
                 "box": [x1_scaled, y1_scaled, x2_scaled, y2_scaled]
             })
 
-            
             cv2.rectangle(image, (x1_scaled, y1_scaled), (x2_scaled, y2_scaled), (0, 255, 0), 2)
-            label_text = f"{class_name} {score:.2f}"
+            label_text = f"{class_name} {item['raw_score']:.2f}"
             cv2.putText(image, label_text, (x1_scaled, max(20, y1_scaled - 10)),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 0, 0), 2)
 
@@ -329,11 +323,10 @@ def postprocess_onnx(outputs, image_files, image_folder, label_path, confidence_
             print(f"Processed: {image_name} (No Objects Found above threshold)")
             
         prediction_metadata.append(image_record)
+
     end_post = time.perf_counter()
     postprocess_time_ms = (end_post - start_post) * 1000
-
-    print("\nAll output images saved successfully.")
-    return prediction_metadata,postprocess_time_ms
+    return prediction_metadata, postprocess_time_ms
 
 
 def main():
@@ -345,6 +338,10 @@ def main():
         onnx_model_path = load_onnx_model(MODEL_DIR)
     
     has_nvml = False
+    peak_vram_bytes = 0
+    stop_tracking = False
+    my_pid = os.getpid()
+
     try:
         pynvml.nvmlInit()
         nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -352,25 +349,32 @@ def main():
     except Exception:
         print("Warning: NVML initialization failed. GPU memory tracking disabled.")
 
-    baseline_mem = 0
+    # --- FIX 3: COOPERATIVE MULTI-THREADING TIMING STEP ---
+    def track_peak_memory():
+        nonlocal peak_vram_bytes
+        while not stop_tracking:
+            try:
+                procs = pynvml.nvmlDeviceGetComputeRunningProcesses(nvml_handle)
+                for p in procs:
+                    if p.pid == my_pid:
+                        if p.usedGpuMemory > peak_vram_bytes:
+                            peak_vram_bytes = p.usedGpuMemory
+            except Exception:
+                pass
+            time.sleep(0.02)  # Relaxed to 20ms to protect CPU from GIL starvation
+
     if has_nvml:
-        baseline_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
+        mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
+        mem_thread.start()
 
-
-    batch_numpy, image_files,preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
+    batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
 
     predictions, inference_ms = inference_onnx(
         onnx_model=onnx_model_path,
         batch_numpy=batch_numpy,
     )
 
-    peak_mem_mb = 0
-    if has_nvml:
-        current_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
-        peak_mem_mb = max(0, (current_mem - baseline_mem) / (1024 * 1024))
-        pynvml.nvmlShutdown() 
-
-    prediction_metadata,postprocess_ms = postprocess_onnx(
+    prediction_metadata, postprocess_ms = postprocess_onnx(
         outputs=predictions,
         image_files=image_files,
         image_folder=IMAGE_DIR,
@@ -378,8 +382,15 @@ def main():
         confidence_threshold=0.6,
         input_size=INPUT_SIZE,
     )
+    
+    stop_tracking = True
+    if has_nvml:
+        mem_thread.join()
 
-
+    peak_mem_mb = peak_vram_bytes / (1024 * 1024)
+    if has_nvml:
+        pynvml.nvmlShutdown()
+        
     sys_env = get_system_env_info()
     model_spec = get_model_details(onnx_model_path, LABEL_PATH)
 
@@ -389,7 +400,6 @@ def main():
     avg_postprocess = postprocess_ms / batch_size
     total_pipeline_ms = preprocess_ms + inference_ms + postprocess_ms
 
-    # Log metrics to console matching required format
     print("=" * 60)
     print("ONNX RUNTIME PERFORMANCE")
     print("=" * 60)
@@ -401,10 +411,11 @@ def main():
     
     print(f"\nSummary -> preprocess: {avg_preprocess:.1f}ms, inference: {avg_inference:.1f}ms, postprocess: {avg_postprocess:.1f}ms per image\n")
 
+    # --- FIX 4: ROBUST MODEL NAME EXTRACTION ---
+    onnx_model_name = Path(onnx_model_path).name
 
-    # Construct Configuration Dictionary matching Phase 1 Table requirements
     config_dict = {
-        "Model Path": str(onnx_model_path),
+        "Model Name": onnx_model_name,
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),
@@ -415,15 +426,14 @@ def main():
     perf_metrics = {
         "Total Images Processed": batch_size,
         "Total Pipeline Time": f"{total_pipeline_ms:.2f} ms",
+        "Total Inference Time in ms": f"{inference_ms:.2f}ms",
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        "Throughput": f"{batch_size / (total_pipeline_ms / 1000):.2f} Images/sec",
+        "Throughput": f"{batch_size / (inference_ms / 1000):.2f} Images/sec",
         "Peak Memory Usage": f"{peak_mem_mb:.2f} MB" if peak_mem_mb > 0 else "N/A"
     }
 
-    # Generate Structured Report PDF
-    # pdf_report_path = OUTPUT_DIR / "onnx_inference_report.pdf"
     generate_pdf_report(
         output_pdf_path=REPORT_PDF_PATH,
         backend="onnx",

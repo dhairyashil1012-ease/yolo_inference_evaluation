@@ -13,6 +13,8 @@ import tensorrt as trt
 import torchvision.transforms as transforms
 from cuda.bindings import runtime as cudart
 import json
+import pynvml
+import threading
 import re
 from src.report_generator import generate_pdf_report
 
@@ -74,9 +76,27 @@ def get_system_env_info():
     except Exception:
         device_model = "Unknown NVIDIA GPU"
         cuda_version = "N/A"
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    # Accurate Linux distribution detection using built-in tools
+    if platform.system() == "Linux":
+        try:
+            # Works natively in Python 3.10+
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            # Safe manual fallback for older Python versions (< 3.10)
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            # Extract the string inside the quotes
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
+
 
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS": os_name,
         "Python Version": sys.version.split()[0],
         "TensorRT Version": trt.__version__,
         "Inference Device": device_model,
@@ -91,9 +111,7 @@ def get_model_details(engine_model_path, label_path):
     
     if not engine_model_path.exists():
         return {
-            "Model Architecture": "TensorRT Engine",
             "Total Parameters": "Unknown (Compiled)",
-            "GFLOPs": "N/A",
             "File Size": "Unknown",
             "Number of Classes": "Unknown",
             "Class Names": "Unknown",
@@ -127,7 +145,7 @@ def get_model_details(engine_model_path, label_path):
 
 
 
-    architecture = "YOLO (Detect)"
+
     file_size_mb = f"{engine_model_path.stat().st_size / (1024 * 1024):.2f} MB"
     
 
@@ -155,7 +173,6 @@ def get_model_details(engine_model_path, label_path):
     class_names_str = ", ".join(class_names) if class_names else "Unknown"
 
     return {
-        "Model Architecture": architecture,
         "Total Parameters": total_params,
         "File Size": file_size_mb,
         "Number of Classes": num_classes,
@@ -251,6 +268,37 @@ def preprocess_engine(image_folder, input_size):
 def inference_engine(batch_numpy, engine_model):
     TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
+    # --- TRUE PROCESS PEAK TRACKER INITIALIZATION ---
+    has_nvml = False
+    peak_vram_bytes = 0
+    stop_tracking = False
+    my_pid = os.getpid()
+
+    try:
+        pynvml.nvmlInit()
+        nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        has_nvml = True
+    except Exception:
+        pass
+
+    def track_peak_memory():
+        nonlocal peak_vram_bytes
+        while not stop_tracking:
+            try:
+                procs = pynvml.nvmlDeviceGetComputeRunningProcesses(nvml_handle)
+                for p in procs:
+                    if p.pid == my_pid:
+                        if p.usedGpuMemory > peak_vram_bytes:
+                            peak_vram_bytes = p.usedGpuMemory
+            except Exception:
+                pass
+            time.sleep(0.005)
+
+    # Start tracking right before TensorRT deserialization pushes weights to VRAM
+    if has_nvml:
+        mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
+        mem_thread.start()
+
     with open(engine_model, "rb") as f:
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
@@ -263,7 +311,6 @@ def inference_engine(batch_numpy, engine_model):
 
     context.set_input_shape(input_name, batch_numpy.shape)
     output_shape = tuple(context.get_tensor_shape(output_name))
-
     host_input = np.ascontiguousarray(batch_numpy)
     host_output = np.empty(output_shape, dtype=np.float32)
 
@@ -296,12 +343,15 @@ def inference_engine(batch_numpy, engine_model):
     
     inference_time = (end - start) * 1000
 
-    _, free_mem, total_mem = cudart.cudaMemGetInfo()
-    peak_gpu_usage_mb = (total_mem - free_mem) / (1024 * 1024)
+   # Stop tracking right after synchronization completes
+    stop_tracking = True
+    if has_nvml:
+        mem_thread.join()
 
-
-    batch_size = batch_numpy.shape[0]
-    fps = batch_size / (end - start)
+    # Calculate final peak metric
+    peak_gpu_usage_mb = peak_vram_bytes / (1024 * 1024)
+    if has_nvml:
+        pynvml.nvmlShutdown()
 
     cudart.cudaFree(d_input)
     cudart.cudaFree(d_output)
@@ -413,9 +463,10 @@ def main():
 
     sys_env = get_system_env_info()
     model_spec = get_model_details(engine_model_path, LABEL_PATH)
-
+    model_details = get_model_details(engine_model_path, LABEL_PATH)
+    engine_model_name =(engine_model_path.split('/')[-1:])
     config_dict = {
-        "Model Path": str(engine_model_path),
+        "Model Path": str(engine_model_name[0]),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),
@@ -434,6 +485,7 @@ def main():
     performance_metadata = {
         "Total Images Processed": str(total_images),
         "Total Run Time": f"{total_run_time_ms:.2f} ms",
+        "Total Inference Time in ms": f"{inference_ms:.2f}ms",
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",

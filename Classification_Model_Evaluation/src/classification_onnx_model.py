@@ -7,6 +7,7 @@ import ast
 import onnx
 import pynvml
 import torch
+import threading
 import numpy as np
 import ultralytics  
 import platform
@@ -18,10 +19,14 @@ import onnxruntime as ort
 import torchvision.transforms as transforms
 from src.report_generator import generate_pdf_report
 
+
+
 PROJECT_DIR = Path.cwd()
+
 
 config = ConfigParser()
 config.read(PROJECT_DIR / "config.txt")
+
 
 MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
 IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
@@ -61,6 +66,8 @@ print(f"Input Size : {INPUT_SIZE}")
 print("=" * 60)
 
 
+
+
 # Load ONNX Model Path
 def load_onnx_model(model_dir):
     pathlist = Path(model_dir).glob("**/*.onnx")
@@ -70,10 +77,12 @@ def load_onnx_model(model_dir):
         raise FileNotFoundError("No ONNX model found.")
 
     onnx_model = filelist[-1]
-    print(f"ONNX Model : {onnx_model}")
+ 
     return onnx_model
 
 
+
+# Generate ONNX Model From Pt
 def export_onnx_model(model):   
     model.export(
         format="onnx",
@@ -84,6 +93,9 @@ def export_onnx_model(model):
     )
     print("\nONNX export completed successfully.")
     time.sleep(1)
+from ultralytics import YOLO
+
+
 
 
 # Load PyTorch/YOLO Model
@@ -93,6 +105,8 @@ def load_model(model_path):
 
     model = YOLO(model_path)
     model.to(device)
+
+    
     return model
 
 
@@ -134,21 +148,41 @@ def preprocess_onnx(folder_path):
     print()
 
     end_pre = time.perf_counter()
-    preprocess_time_ms = (end_pre - start_pre)
+    preprocess_time_ms = (end_pre - start_pre) * 1000
     return batch_numpy, image_files, preprocess_time_ms
 
 
+
+
 def get_system_env_info():
-    
     device_model = "CPU"
     cuda_version = "N/A"
     
     if torch.cuda.is_available():
         device_model = torch.cuda.get_device_name(0)
         cuda_version = torch.version.cuda
+        
+    # Standard fallback
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    # Accurate Linux distribution detection using built-in tools
+    if platform.system() == "Linux":
+        try:
+            # Works natively in Python 3.10+
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            # Safe manual fallback for older Python versions (< 3.10)
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            # Extract the string inside the quotes
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
     
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS": os_name,
         "Python Version": sys.version.split()[0],
         "PyTorch Version": torch.__version__,
         "Ultralytics Version": ultralytics.__version__,
@@ -157,6 +191,8 @@ def get_system_env_info():
     }
 
 
+
+# Get Model Details
 def get_model_details(onnx_model_path):
 
     onnx_model_path = Path(onnx_model_path)
@@ -178,12 +214,7 @@ def get_model_details(onnx_model_path):
     )
     metadata = session.get_modelmeta().custom_metadata_map
 
-    # 1. Model Architecture
-    task = metadata.get("task")
-    if task:
-        architecture = f"YOLO ({task.capitalize()})"
-    else:
-        architecture = model.graph.name or "ONNX Model"
+
 
     # 2. Parameters
     total_params = sum(
@@ -223,7 +254,6 @@ def get_model_details(onnx_model_path):
             pass
 
     return {
-        "Model Architecture": architecture,
         "Total Parameters": f"{int(total_params):,}" if total_params > 0 else "Unknown",
         "File Size": file_size_mb,
         "Number of Classes": num_classes,
@@ -232,6 +262,8 @@ def get_model_details(onnx_model_path):
     }
 
 
+
+# Inference Code
 def inference_onnx(onnx_model, batch_numpy):
     ort.preload_dlls()
     opts = ort.SessionOptions()
@@ -258,6 +290,8 @@ def inference_onnx(onnx_model, batch_numpy):
     return outputs[0], inference_time_ms
 
 
+
+# Postproces
 def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
     start_post = time.perf_counter()
 
@@ -317,12 +351,13 @@ def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
         })
 
     end_post = time.perf_counter()
-    postprocess_time_ms = (end_post - start_post)
+    postprocess_time_ms = (end_post - start_post) * 1000
 
     return prediction_metadata, postprocess_time_ms
 
 
 
+# Main
 def main():
     try:
         onnx_model_path = load_onnx_model(MODEL_DIR)
@@ -331,7 +366,12 @@ def main():
         export_onnx_model(model)
         onnx_model_path = load_onnx_model(MODEL_DIR)
 
+    # --- TRUE PROCESS PEAK TRACKER INITIALIZATION ---
     has_nvml = False
+    peak_vram_bytes = 0
+    stop_tracking = False
+    my_pid = os.getpid()
+
     try:
         pynvml.nvmlInit()
         nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -339,19 +379,29 @@ def main():
     except Exception:
         print("Warning: NVML initialization failed. GPU memory tracking disabled.")
 
-    baseline_mem = 0
-    if has_nvml:
-        baseline_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
+    # High-frequency sampling thread to catch micro-spikes
+    def track_peak_memory():
+        nonlocal peak_vram_bytes
+        while not stop_tracking:
+            try:
+                procs = pynvml.nvmlDeviceGetComputeRunningProcesses(nvml_handle)
+                for p in procs:
+                    if p.pid == my_pid:
+                        if p.usedGpuMemory > peak_vram_bytes:
+                            peak_vram_bytes = p.usedGpuMemory
+            except Exception:
+                pass
+            time.sleep(0.005)  # Sample every 5ms
 
+    # Start tracking right before the active pipeline starts
+    if has_nvml:
+        mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
+        mem_thread.start()
+
+    # --- EXECUTE ACTIVE RUNTIME ---
     batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
     
     raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy)
-    
-    peak_mem_mb = 0
-    if has_nvml:
-        current_mem = pynvml.nvmlDeviceGetMemoryInfo(nvml_handle).used
-        peak_mem_mb = max(0, (current_mem - baseline_mem) / (1024 * 1024))
-        pynvml.nvmlShutdown() # Clean up driver resources
 
     prediction_metadata, postprocess_ms = postprocess_onnx(
         predictions=raw_predictions,
@@ -359,35 +409,42 @@ def main():
         folder_path=IMAGE_DIR,
         txt_label_path=LABEL_PATH,
     )
-        
-    # 2. Compute Structural Per-Image Timing Averages
+
+    # Stop tracking immediately after core execution finishes
+    stop_tracking = True
+    if has_nvml:
+        mem_thread.join()
+
+    # --- CALCULATE METRICS ---
+    peak_mem_mb = peak_vram_bytes / (1024 * 1024)
+    if has_nvml:
+        pynvml.nvmlShutdown()  # Safe shutdown after extraction
+
     batch_size = len(image_files)
+    inference_time_in_second = inference_ms
     avg_preprocess = preprocess_ms / batch_size
-    
     avg_inference = inference_ms / batch_size
     avg_postprocess = postprocess_ms / batch_size
     total_pipeline_ms = preprocess_ms + inference_ms + postprocess_ms
 
-    # Log metrics to console matching required format
+    # Log metrics to console
     print("=" * 60)
     print("ONNX RUNTIME PERFORMANCE")
     print("=" * 60)
     print(f"Total Images Processed : {batch_size}")
-    print(f"Inference Latency      :{inference_ms}")
     print(f"Total Pipeline Time    : {total_pipeline_ms:.2f} ms")
     print(f"Preprocess Latency     : {avg_preprocess:.2f} ms per image")
     print(f"Inference Latency      : {avg_inference:.2f} ms per image")
     print(f"Postprocess Latency    : {avg_postprocess:.2f} ms per image")
-    
+    print(f"Peak VRAM Usage        : {peak_mem_mb:.2f} MB")
+
     print(f"\nSummary -> preprocess: {avg_preprocess:.1f}ms, inference: {avg_inference:.1f}ms, postprocess: {avg_postprocess:.1f}ms per image\n")
 
-    # 3. Discover Environment Specs & ONNX-specific Model Metadata
     env_info = get_system_env_info()
     model_details = get_model_details(onnx_model_path)
-
-    # Compile integrated dataset configurations for PDF execution
+    onnx_model_name =(onnx_model_path.split('/')[-1:]) #output: ./from_here/thefile.txt
     config_dict = {
-        "Model Path": str(onnx_model_path),
+        "Model Name": str(onnx_model_name[0]),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Label Map": str(LABEL_PATH),
         "Source Images Directory": str(IMAGE_DIR),
@@ -396,25 +453,27 @@ def main():
         **model_details
     }
 
-    perf_metrics = {
-        "Total Images Processed": batch_size,
-        "Inference Time in ms":f"{inference_ms}ms",
-        # "Total Pipeline Time": f"{total_pipeline_ms:.2f} s",
-        # "Preprocess Latency": f"{avg_preprocess:.2f} s per image",
-        # "Inference Latency": f"{avg_inference:.2f} s per image",
-        # "Postprocess Latency": f"{avg_postprocess:.2f} s per image",
-        # "Throughput": f"{batch_size / (total_pipeline_ms / 1000):.2f} Images/sec",
-        # "Peak Memory Usage": f"{peak_mem_mb:.2f} MB" if peak_mem_mb > 0 else "N/A"
+
+    performance_metadata = {
+        "Total Images Processed": str(batch_size),
+        "Total Run Time": f"{total_pipeline_ms:.2f} ms",
+        "Total Inference Time in ms": f"{inference_time_in_second:.2f}ms",
+        "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
+        "Inference Latency": f"{avg_inference:.2f} ms per image",
+        "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
+        "Throughput": f"{(batch_size / (inference_ms / 1000.0)):.2f} Images/sec",
+        "Peak Memory Usage": f" {peak_mem_mb:.2f} MB"
     }
-    
-    # 4. Generate Structured PDF Report
+
+        
     generate_pdf_report(
         output_pdf_path=REPORT_PDF_PATH,
         backend="onnx",
         config_data=config_dict,
-        performance_data=perf_metrics,
+        performance_data=performance_metadata ,
         predictions=prediction_metadata
     )
+
 
 if __name__ == "__main__":
     main()

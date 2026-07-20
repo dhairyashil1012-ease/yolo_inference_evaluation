@@ -11,6 +11,10 @@ from ultralytics import YOLO
 from pathlib import Path
 from configparser import ConfigParser
 from src.report_generator import generate_pdf_report 
+import os
+import time
+import psutil
+import torch
 
 PROJECT_DIR = Path.cwd()
 
@@ -87,23 +91,43 @@ def preprocess(folder_path):
     return image_paths
 
 
+
 def get_system_env_info():
-    
     device_model = "CPU"
     cuda_version = "N/A"
     
     if torch.cuda.is_available():
         device_model = torch.cuda.get_device_name(0)
         cuda_version = torch.version.cuda
+        
+    # Standard fallback
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    # Accurate Linux distribution detection using built-in tools
+    if platform.system() == "Linux":
+        try:
+            # Works natively in Python 3.10+
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            # Safe manual fallback for older Python versions (< 3.10)
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            # Extract the string inside the quotes
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
     
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS": os_name,
         "Python Version": sys.version.split()[0],
         "PyTorch Version": torch.__version__,
         "Ultralytics Version": ultralytics.__version__,
         "Inference Device": device_model,
         "CUDA Version": cuda_version
     }
+
 
 
 def get_model_details(model, model_path):
@@ -118,7 +142,6 @@ def get_model_details(model, model_path):
     precision = "FP16" if next(model.model.parameters()).dtype == torch.float16 else "FP32"
 
     return {
-        "Model Architecture": getattr(model.model, 'yaml', {}).get('type', 'YOLO-cls'),
         "Total Parameters": params,
         "File Size": file_size_mb,
         "Number of Classes": num_classes,
@@ -127,76 +150,78 @@ def get_model_details(model, model_path):
     }
 
 
+
 def inference(model, folder_path):
-    # Reset tracking for memory before execution starts
+    # 1. Reset GPU tracking and clear cache if available
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
     
-    # Track baseline CPU memory
+    # 2. Track baseline CPU memory
     process = psutil.Process(os.getpid())
     cpu_mem_start = process.memory_info().rss
 
     if torch.cuda.is_available():
         torch.cuda.synchronize()
 
-    # start = time.perf_counter()
+    # 3. Define execution device
     device = 0 if torch.cuda.is_available() else "cpu"
 
+    # 4. Execute inference and time it
     start = time.perf_counter()
-    # Run predictions across the whole source directory
     results = model.predict(
         source=str(folder_path),
         imgsz=INPUT_SIZE,
         device=device,
         verbose=False,
+        # stream=True # Uncomment if processing massive folders to avoid holding all results in RAM
     )
-    end = time.perf_counter()
     if torch.cuda.is_available():
         torch.cuda.synchronize()
+    end = time.perf_counter()
 
-    # end = time.perf_counter()
-    # total_time_ms = (end - start) * 1000
-
+    # 5. Calculate Timings
     total_time_ms = (end - start) * 1000
     batch_size = len(results)
     
-    # Extract internal speed breakdown from YOLO results dictionary (averaging per image)
+    # Extract internal speed breakdown from YOLO results dictionary
     avg_preprocess_ms = sum(r.speed.get('preprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-    avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) 
-    inference_time_from_results = sum(r.speed.get('inference',0.0) for r in results)
+    inference_time_from_results = sum(r.speed.get('inference', 0.0) for r in results)
     avg_postprocess_ms = sum(r.speed.get('postprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
     
-    # Measure Memory Usage
-    if torch.cuda.is_available():
-        peak_gpu_bytes = torch.cuda.max_memory_allocated(0)
-        memory_usage = f"{peak_gpu_bytes / (1024 * 1024):.2f} MB"
-    else:
-        cpu_mem_end = process.memory_info().rss
-        peak_cpu_diff = max(0, cpu_mem_end - cpu_mem_start)
-        memory_usage = f"Peak Delta CPU: {peak_cpu_diff / (1024 * 1024):.2f} MB"
 
+    cpu_mem_end = process.memory_info().rss
+    peak_cpu_diff_mb = max(0, cpu_mem_end - cpu_mem_start) / (1024 * 1024)
+    
+
+    if torch.cuda.is_available():
+        # Captures total VRAM allocated/cached by PyTorch (aligns with nvidia-smi)
+        peak_gpu_reserved_mb = torch.cuda.max_memory_reserved(0) / (1024 * 1024)
+        gpu_memory_str = f"{peak_gpu_reserved_mb:.2f} MB"
+    else:
+        gpu_memory_str = "N/A (Running on CPU)"
+
+    # 7. Construct performance metrics dictionary
     perf_metrics = {
         "Total Images Processed": batch_size,
-        "Inference Time in ms using time": f"{total_time_ms:.2f} ms",
-        "Inference Time in ms_from_results": f"{inference_time_from_results:.2f}ms"
-        # "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms per image",
-        # "Inference Latency": f"{avg_inference_ms:.2f} ms per image",
-        # "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms per image",
-        # "Throughput": f"{batch_size/(end-start):.2f} Images/sec",
-        # "Peak Memory Usage": memory_usage
+        "Inference Time (time.perf_counter)": f"{total_time_ms:.2f} ms",
+        "Inference Time (YOLO Results)": f"{inference_time_from_results:.2f} ms",
+        # "Peak System RAM CPU": f"{peak_cpu_diff_mb:.2f} MB",
+        "Peak GPU VRAM Reserved": gpu_memory_str,
+        "Throughput": f"{batch_size / (end - start):.2f} Images/sec" if batch_size > 0 else "0.00 Images/sec"
     }
 
+    # 8. Clean print formatting
     print("\n" + "=" * 60)
-    print("INFERENCE PERFORMANCE")
+    print("INFERENCE PERFORMANCE & RESOURCE METRICS")
     print("=" * 60)
     for k, v in perf_metrics.items():
-        print(f"{k:<25}: {v}")
+        print(f"{k:<35}: {v}")
     
-    # Print the requested summary metric log structure[cite: 1]
-    print(f"\nSummary -> preprocess: {avg_preprocess_ms:.1f}ms, inference: {avg_inference_ms:.1f}ms, postprocess: {avg_postprocess_ms:.1f}ms per image\n")
+    print(f"\nSummary -> preprocess: {avg_preprocess_ms:.1f}ms, inference: {inference_time_from_results:.1f}ms, postprocess: {avg_postprocess_ms:.1f}ms per image\n")
 
     return results, perf_metrics
+
 
 
 def postprocess(results, image_paths):
@@ -256,7 +281,7 @@ def main():
     predictions = postprocess(results, image_paths)
     
     config_dict = {
-        "Model Path": str(MODEL_PATH),
+        "Model Name": str(MODEL_NAME),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),

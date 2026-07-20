@@ -12,6 +12,12 @@ from pathlib import Path
 import torchvision.transforms as transforms
 from configparser import ConfigParser
 import re
+import os
+import threading
+import time
+import numpy as np
+import tensorrt as trt
+import pynvml
 import json
 import ast
 import tensorrt as trt
@@ -19,34 +25,39 @@ from cuda.bindings import runtime as cudart
 from src.report_generator import generate_pdf_report
 PROJECT_DIR = Path.cwd()
 
+
 config = ConfigParser()
 config.read("config.txt")
 
-# -----------------------------
-# Paths
-# -----------------------------
+
 MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
 IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
 OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ENGINE_OUTPUT_DIR"]
 LABEL_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
 REPORT_DIR=PROJECT_DIR/config['PATHS']["REPORT_OUTPUT_DIR"]
 MODEL_NAME = config["PATHS"]["ONNX_MODEL_NAME"]
-
 LABEL_NAME = config["PATHS"]["LABEL_NAME"]
+
+
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = LABEL_DIR / LABEL_NAME
+
+
 REPORT_PDF_PATH = REPORT_DIR / "classification_engine_inference_report.pdf"
+
 
 INPUT_SIZE = (
     config.getint("MODEL", "INPUT_HEIGHT"),
     config.getint("MODEL", "INPUT_WIDTH"),
 )
 
+
 MODEL_DIR.mkdir(parents=True, exist_ok=True)
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 IMAGE_DIR.mkdir(parents=True, exist_ok=True)
 LABEL_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
 
 print("=" * 60)
 print("Configuration")
@@ -59,7 +70,35 @@ print(f"Input Size : {INPUT_SIZE}")
 
 
 
+
+# Get System Information
 def get_system_env_info():
+
+    device_model = "CPU"
+    cuda_version = "N/A"
+    
+    if torch.cuda.is_available():
+        device_model = torch.cuda.get_device_name(0)
+        cuda_version = torch.version.cuda
+        
+    # Standard fallback
+    os_name = f"{platform.system()} {platform.release()}"
+    
+    # Accurate Linux distribution detection using built-in tools
+    if platform.system() == "Linux":
+        try:
+            # Works natively in Python 3.10+
+            os_info = platform.freedesktop_os_release()
+            os_name = os_info.get("PRETTY_NAME", os_name)
+        except (AttributeError, OSError):
+            # Safe manual fallback for older Python versions (< 3.10)
+            if os.path.exists("/etc/os-release"):
+                with open("/etc/os-release") as f:
+                    for line in f:
+                        if line.startswith("PRETTY_NAME="):
+                            # Extract the string inside the quotes
+                            os_name = line.split("=")[1].strip().strip('"')
+                            break
 
     try:
         _, device = cudart.cudaGetDevice()
@@ -74,7 +113,7 @@ def get_system_env_info():
         cuda_version = "N/A"
 
     return {
-        "OS": f"{platform.system()} {platform.release()}",
+        "OS":os_name,
         "Python Version": sys.version.split()[0],
         "TensorRT Version": trt.__version__,
         "Inference Device": device_model,
@@ -82,6 +121,8 @@ def get_system_env_info():
     }
 
 
+
+# Get Model Details
 def get_model_details(engine_model_path, label_path):
 
     engine_model_path = Path(engine_model_path)
@@ -153,7 +194,6 @@ def get_model_details(engine_model_path, label_path):
     file_size_mb = f"{engine_model_path.stat().st_size / (1024 * 1024):.2f} MB"
 
     return {
-        "Model Architecture": architecture,
         "Total Parameters": total_params,
         "File Size": file_size_mb,
         "Number of Classes": len(class_names) if class_names else "Unknown",
@@ -162,6 +202,8 @@ def get_model_details(engine_model_path, label_path):
     }
 
 
+
+# Load Onnx Model
 def load_onnx_model(model_dir):
     pathlist = Path(model_dir).glob("**/*.onnx")
     filelist = sorted([str(file) for file in pathlist])
@@ -171,6 +213,7 @@ def load_onnx_model(model_dir):
     return onnx_model
 
 
+# Generate Engine (TRT) Model From ONNX
 def export_engine_model(onnx_model_p):
     os.chdir(MODEL_DIR)
     subprocess.run([
@@ -186,6 +229,7 @@ def export_engine_model(onnx_model_p):
     time.sleep(1)
 
 
+# Load Engine(TRT) Model
 def load_engine_model(model_dir):
     pathlist = Path(model_dir).glob("**/*.engine")
     filelist = sorted([str(file) for file in pathlist])
@@ -203,7 +247,7 @@ def check_cuda(err):
         raise RuntimeError(f"CUDA Error : {err}")
 
 
-
+# Preprocess Image
 def preprocess_engine(image_folder, input_size):
     start_pre = time.perf_counter()
 
@@ -249,9 +293,42 @@ def preprocess_engine(image_folder, input_size):
     return batch_numpy, image_files, preprocess_time_ms
 
 
+# Inference
 def inference_engine(batch_numpy, engine_model):
     TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
 
+    # --- TRUE PROCESS PEAK TRACKER INITIALIZATION ---
+    has_nvml = False
+    peak_vram_bytes = 0
+    stop_tracking = False
+    my_pid = os.getpid()
+
+    try:
+        pynvml.nvmlInit()
+        nvml_handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        has_nvml = True
+    except Exception:
+        pass
+
+    def track_peak_memory():
+        nonlocal peak_vram_bytes
+        while not stop_tracking:
+            try:
+                procs = pynvml.nvmlDeviceGetComputeRunningProcesses(nvml_handle)
+                for p in procs:
+                    if p.pid == my_pid:
+                        if p.usedGpuMemory > peak_vram_bytes:
+                            peak_vram_bytes = p.usedGpuMemory
+            except Exception:
+                pass
+            time.sleep(0.005)
+
+    # Start tracking right before TensorRT deserialization pushes weights to VRAM
+    if has_nvml:
+        mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
+        mem_thread.start()
+
+    # --- TENSORRT RUNTIME INITIALIZATION ---
     with open(engine_model, "rb") as f:
         runtime = trt.Runtime(TRT_LOGGER)
         engine = runtime.deserialize_cuda_engine(f.read())
@@ -266,6 +343,7 @@ def inference_engine(batch_numpy, engine_model):
     host_input = np.ascontiguousarray(batch_numpy)
     host_output = np.empty(output_shape, dtype=np.float32)
 
+    # Allocate Device Memory
     err, d_input = cudart.cudaMalloc(host_input.nbytes)
     check_cuda(err)
     err, d_output = cudart.cudaMalloc(host_output.nbytes)
@@ -274,6 +352,7 @@ def inference_engine(batch_numpy, engine_model):
     err, stream = cudart.cudaStreamCreate()
     check_cuda(err)
 
+    # --- EXECUTE INFERENCE ---
     check_cuda(cudart.cudaMemcpyAsync(d_input, host_input.ctypes.data, host_input.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, stream))
 
     start = time.perf_counter()
@@ -284,14 +363,19 @@ def inference_engine(batch_numpy, engine_model):
     check_cuda(cudart.cudaMemcpyAsync(host_output.ctypes.data, d_output, host_output.nbytes, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, stream))
     check_cuda(cudart.cudaStreamSynchronize(stream))
 
-    inference_time = (time.perf_counter() - start)  * 1000
+    inference_time = (time.perf_counter() - start) * 1000
 
-    
+    # Stop tracking right after synchronization completes
+    stop_tracking = True
+    if has_nvml:
+        mem_thread.join()
 
-  
-    _, free_mem, total_mem = cudart.cudaMemGetInfo()
-    peak_gpu_usage_mb = (total_mem - free_mem) / (1024 * 1024)
+    # Calculate final peak metric
+    peak_gpu_usage_mb = peak_vram_bytes / (1024 * 1024)
+    if has_nvml:
+        pynvml.nvmlShutdown()
 
+    # Clean up GPU resources
     cudart.cudaFree(d_input)
     cudart.cudaFree(d_output)
     cudart.cudaStreamDestroy(stream)
@@ -299,6 +383,7 @@ def inference_engine(batch_numpy, engine_model):
     return host_output, inference_time, peak_gpu_usage_mb
 
 
+# PostProcess 
 def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
     start_time = time.perf_counter()
     
@@ -344,13 +429,14 @@ def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
 
 
 
-# -----------------------------
-# Main Execution Entry Point
-# -----------------------------
+# Main
 def main():
+
     try:
         engine_model_path = load_engine_model(MODEL_DIR)
         print(f"Using Existing Engine : {engine_model_path}")
+
+
     except FileNotFoundError:
         print("No TensorRT engine found. Exporting from ONNX...")
         onnx_model_path = load_onnx_model(MODEL_DIR)
@@ -358,7 +444,6 @@ def main():
         engine_model_path = load_engine_model(MODEL_DIR)
         print(f"Using newly created engine: {engine_model_path}")
 
-    # 1. Run Pipeline and Extract execution intervals
     batch_numpy, image_files, preprocess_ms = preprocess_engine(
         image_folder=IMAGE_DIR,
         input_size=INPUT_SIZE,
@@ -379,9 +464,9 @@ def main():
 
     env_info = get_system_env_info()
     model_details = get_model_details(engine_model_path, LABEL_PATH)
-
+    engine_model_name =(engine_model_path.split('/')[-1:])
     config_metadata = {
-        "Model Path": str(engine_model_path),
+        "Model Name": str(engine_model_name[0]),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),
@@ -390,7 +475,6 @@ def main():
         "TensorRT Version": env_info["TensorRT Version"],
         "Inference Device": env_info["Inference Device"],
         "CUDA Version": env_info["CUDA Version"],
-        "Model Architecture": model_details["Model Architecture"],
         "Total Parameters": model_details["Total Parameters"],
         "File Size": model_details["File Size"],
         "Number of Classes": model_details["Number of Classes"],
@@ -400,6 +484,7 @@ def main():
 
     total_images = len(image_files)
     total_run_time_ms = preprocess_ms + inference_ms + postprocess_ms
+    # total_run_time_ms = inference_ms
     batch_size = len(image_files)
     avg_preprocess = preprocess_ms / batch_size
     inference_time_in_second = inference_ms
@@ -408,13 +493,13 @@ def main():
     
     performance_metadata = {
         "Total Images Processed": str(total_images),
-        # "Total Run Time": f"{total_run_time_ms:.2f} ms",
-        "Inference Time in ms": f"{inference_time_in_second}ms",
-        # "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
-        # "Inference Latency": f"{avg_inference:.2f} ms per image",
-        # "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        # "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
-        # "Peak Memory Usage": f" {peak_gpu_mb:.2f} MB"
+        "Total Run Time": f"{total_run_time_ms:.2f} ms",
+        "Total Inference Time in ms": f"{inference_time_in_second:.2f}ms",
+        "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
+        "Inference Latency": f"{avg_inference:.2f} ms per image",
+        "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
+        "Throughput": f"{(total_images / (inference_ms / 1000.0)):.2f} Images/sec",
+        "Peak Memory Usage": f" {peak_gpu_mb:.2f} MB"
     }
 
   
