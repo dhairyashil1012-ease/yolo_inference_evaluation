@@ -18,6 +18,7 @@ from ultralytics import YOLO
 import onnxruntime as ort
 import torchvision.transforms as transforms
 from src.report_generator import generate_pdf_report
+import contextlib
 
 
 
@@ -67,6 +68,26 @@ print("=" * 60)
 
 
 
+class Profile(contextlib.ContextDecorator):
+
+    def __init__(self, t=0.0, sync_cuda=False):
+        self.t = t
+        self.sync_cuda = sync_cuda
+        self.dt = 0.0
+
+    def __enter__(self):
+        self.start = self.time()
+        return self
+
+    def __exit__(self, type, value, traceback):
+        self.dt = self.time() - self.start
+        self.t += self.dt
+
+    def time(self):
+        if self.sync_cuda and torch.cuda.is_available():
+            torch.cuda.synchronize()
+        return time.perf_counter()
+
 
 # Load ONNX Model Path
 def load_onnx_model(model_dir):
@@ -93,7 +114,7 @@ def export_onnx_model(model):
     )
     print("\nONNX export completed successfully.")
     time.sleep(1)
-from ultralytics import YOLO
+
 
 
 
@@ -110,45 +131,45 @@ def load_model(model_path):
     return model
 
 
-# Preprocess Phase 
-def preprocess_onnx(folder_path):
-    # Start timer for preprocessing stage
-    start_pre = time.perf_counter()
+def preprocess_onnx(folder_path, sync_cuda=False):
 
-    transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
-        transforms.ToTensor(),
-    ])
+    prof = Profile(sync_cuda=sync_cuda)
+    
+    with prof:
+        image_files = sorted([
+            file for file in os.listdir(folder_path)
+            if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+        ])
+        
+        if len(image_files) == 0:
+            raise ValueError("No images found.")
 
-    image_files = sorted([
-        file for file in os.listdir(folder_path)
-        if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
-    ])
+        image_list = []
 
-    if len(image_files) == 0:
-        raise ValueError("No images found.")
-    image_list = []
+        print("=" * 60)
+        print("PREPROCESS")
+        print("=" * 60)
 
-    print("=" * 60)
-    print("PREPROCESS")
-    print("=" * 60)
+        for file in image_files:
+            image_path = os.path.join(folder_path, file)
+            img = cv2.imread(image_path)
+            if img is None:
+                continue
+            
+            img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+            img = cv2.resize(img, (INPUT_SIZE[1], INPUT_SIZE[0]))
+            img = img.astype(np.float32) / 255.0
+            img = img.transpose(2, 0, 1)
+            image_list.append(img)
 
-    for file in image_files:
-        image_path = os.path.join(folder_path, file)
-        image = Image.open(image_path).convert("RGB")
-        tensor = transform(image)
-        image_list.append(tensor)
-
-    batch_tensor = torch.stack(image_list)
-    batch_numpy = batch_tensor.numpy().astype(np.float32)
+        batch_numpy = np.stack(image_list, axis=0)
 
     print("Number of Images :", len(image_files))
     print("Batch Shape      :", batch_numpy.shape)
     print("Input dtype      :", batch_numpy.dtype)
     print()
-
-    end_pre = time.perf_counter()
-    preprocess_time_ms = (end_pre - start_pre) * 1000
+    
+    preprocess_time_ms = prof.t * 1000
     return batch_numpy, image_files, preprocess_time_ms
 
 
@@ -264,7 +285,7 @@ def get_model_details(onnx_model_path):
 
 
 # Inference Code
-def inference_onnx(onnx_model, batch_numpy):
+def inference_onnx(onnx_model, batch_numpy,sync_cuda=False):
     ort.preload_dlls()
     opts = ort.SessionOptions()
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
@@ -279,82 +300,80 @@ def inference_onnx(onnx_model, batch_numpy):
     input_name = session.get_inputs()[0].name
 
 
-    start_inf = time.perf_counter()
+    # start_inf = time.perf_counter()
+    prof = Profile(sync_cuda=sync_cuda)
+    
+    with prof:
+        outputs = session.run(None, {input_name: batch_numpy})
 
-    outputs = session.run(None, {input_name: batch_numpy})
-
-    end_inf = time.perf_counter()
-
-    inference_time_ms = (end_inf - start_inf) *1000
+    # end_inf = time.perf_counter()
+    inference_time_ms = prof.t * 1000
+    # inference_time_ms = (end_inf - start_inf) *1000
 
     return outputs[0], inference_time_ms
 
 
 
 # Postproces
-def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
-    start_post = time.perf_counter()
 
-    print("=" * 60)
-    print("POSTPROCESS")
-    print("=" * 60)
+def postprocess_onnx(predictions, image_files, folder_path, txt_label_path, sync_cuda=False):
+    prof = Profile(sync_cuda=sync_cuda)
 
-    with open(txt_label_path, "r", encoding="utf-8") as f:
-        class_names = [line.strip() for line in f if line.strip()]
+    with prof:
+        print("=" * 60)
+        print("POSTPROCESS")
+        print("=" * 60)
 
-    class_ids = np.argmax(predictions, axis=1)
-    scores = np.max(predictions, axis=1)
-    
-    prediction_metadata = []
+        with open(txt_label_path, "r", encoding="utf-8") as f:
+            class_names = [line.strip() for line in f if line.strip()]
 
-    for i, file_name in enumerate(image_files):
-        img_path = os.path.join(folder_path, file_name)
-        image = cv2.imread(img_path)
-        if image is None:
-            print(f"Unable to read {img_path}")
-            continue
-
-        class_id = int(class_ids[i])
+        class_ids = np.argmax(predictions, axis=1)
+        scores = np.max(predictions, axis=1)
         
-        if class_id < len(class_names):
-            class_name = class_names[class_id]
-        else:
-            class_name = f"ID_{class_id}"
+        prediction_metadata = []
+
+        for i, file_name in enumerate(image_files):
+            img_path = os.path.join(folder_path, file_name)
+            image = cv2.imread(img_path)
+            if image is None:
+                print(f"Unable to read {img_path}")
+                continue
+
+            class_id = int(class_ids[i])
+            if class_id < len(class_names):
+                class_name = class_names[class_id]
+            else:
+                class_name = f"ID_{class_id}"
+                
+            confidence = scores[i] * 100
+            text = f"{class_name}: {confidence:.1f}%"
+            print(f"Image: {file_name} -> {text}")
+
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.7
+            thickness = 2
+            text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
             
-        confidence = scores[i] * 100
+            text_x, text_y = 20, 40
+            cv2.rectangle(image, 
+                          (text_x - 5, text_y - text_size[1] - 5), 
+                          (text_x + text_size[0] + 5, text_y + baseline), 
+                          (0, 0, 0), 
+                          cv2.FILLED)
 
-        text = f"{class_name}: {confidence:.1f}%"
-        print(f"Image: {file_name} -> {text}")
+            cv2.putText(image, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
 
-        font = cv2.FONT_HERSHEY_SIMPLEX
-        font_scale = 0.7
-        thickness = 2
-        text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
-        
-        text_x, text_y = 20, 40
-  
-        cv2.rectangle(image, 
-                      (text_x - 5, text_y - text_size[1] - 5), 
-                      (text_x + text_size[0] + 5, text_y + baseline), 
-                      (0, 0, 0), 
-                      cv2.FILLED)
-
-        cv2.putText(image, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
-
-        save_path = OUTPUT_DIR / f"pred_{file_name}"
-        cv2.imwrite(str(save_path), image)
-        
-        prediction_metadata.append({
-            "file_name": file_name,
-            "class_name": class_name,
-            "confidence": confidence
-        })
-
-    end_post = time.perf_counter()
-    postprocess_time_ms = (end_post - start_post) * 1000
-
+            save_path = OUTPUT_DIR / f"pred_{file_name}"
+            cv2.imwrite(str(save_path), image)
+            
+            prediction_metadata.append({
+                "file_name": file_name,
+                "class_name": class_name,
+                "confidence": confidence
+            })
+            
+    postprocess_time_ms = prof.t * 1000
     return prediction_metadata, postprocess_time_ms
-
 
 
 # Main
@@ -365,7 +384,7 @@ def main():
         model = load_model(MODEL_PATH)
         export_onnx_model(model)
         onnx_model_path = load_onnx_model(MODEL_DIR)
-
+    sync_cuda = torch.cuda.is_available()
     # --- TRUE PROCESS PEAK TRACKER INITIALIZATION ---
     has_nvml = False
     peak_vram_bytes = 0
@@ -391,37 +410,36 @@ def main():
                             peak_vram_bytes = p.usedGpuMemory
             except Exception:
                 pass
-            time.sleep(0.005)  # Sample every 5ms
+            time.sleep(0.005) 
 
-    # Start tracking right before the active pipeline starts
+
     if has_nvml:
         mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
         mem_thread.start()
 
-    # --- EXECUTE ACTIVE RUNTIME ---
-    batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
+
+    batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR, sync_cuda=sync_cuda)
     
-    raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy)
+    raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy,sync_cuda=sync_cuda)
 
     prediction_metadata, postprocess_ms = postprocess_onnx(
         predictions=raw_predictions,
         image_files=image_files,
         folder_path=IMAGE_DIR,
         txt_label_path=LABEL_PATH,
+        sync_cuda=sync_cuda
     )
 
-    # Stop tracking immediately after core execution finishes
+
     stop_tracking = True
     if has_nvml:
         mem_thread.join()
 
-    # --- CALCULATE METRICS ---
     peak_mem_mb = peak_vram_bytes / (1024 * 1024)
     if has_nvml:
         pynvml.nvmlShutdown()  # Safe shutdown after extraction
 
     batch_size = len(image_files)
-    inference_time_in_second = inference_ms
     avg_preprocess = preprocess_ms / batch_size
     avg_inference = inference_ms / batch_size
     avg_postprocess = postprocess_ms / batch_size
@@ -457,7 +475,6 @@ def main():
     performance_metadata = {
         "Total Images Processed": str(batch_size),
         "Total Run Time": f"{total_pipeline_ms:.2f} ms",
-        "Total Inference Time in ms": f"{inference_time_in_second:.2f}ms",
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
         "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
