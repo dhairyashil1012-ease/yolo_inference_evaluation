@@ -243,7 +243,7 @@ def main():
         "Inference Latency": f"{inference_ms / batch_size:.2f} ms per image",
         "Postprocess Latency": f"{postprocess_ms / batch_size:.2f} ms per image",
         "Throughput": f"{(batch_size / (total_pipeline_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f"{gpu_memory_str} MB"
+        "Peak Memory Usage": f"{gpu_memory_str} "
     }
     
     config_dict = {
