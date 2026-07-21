@@ -71,23 +71,23 @@ def load_model(model_path):
 
 
 
-def preprocess_onnx(folder_path):
+def preprocess_onnx(image_folder, input_size):
     start_pre = time.perf_counter()
     transform = transforms.Compose([
-        transforms.Resize(INPUT_SIZE),
+        transforms.Resize(input_size),
         transforms.ToTensor(),
     ])
-    image_files = sorted([f for f in os.listdir(folder_path) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
+    image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
     if not image_files:
-        raise ValueError("No images found.")
-        
-    image_list = []
-    for file in image_files:
-        image_path = os.path.join(folder_path, file)
-        image = Image.open(image_path).convert("RGB")
-        image_list.append(transform(image))
+        raise ValueError("No images found in the specified folder.")
 
-    batch_numpy = torch.stack(image_list).numpy().astype(np.float32)
+    batch_images = []
+    for image_name in image_files:
+        image_path = os.path.join(image_folder, image_name)
+        image = Image.open(image_path).convert("RGB")
+        batch_images.append(transform(image))
+
+    batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
     return batch_numpy, image_files, (time.perf_counter() - start_pre) * 1000
 
 
@@ -241,7 +241,7 @@ def main():
         mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
         mem_thread.start()
 
-    batch_numpy, image_files, preprocess_ms = preprocess_onnx(folder_path=IMAGE_DIR)
+    batch_numpy, image_files, preprocess_ms = preprocess_onnx(IMAGE_DIR, INPUT_SIZE)
     
     raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy)
 

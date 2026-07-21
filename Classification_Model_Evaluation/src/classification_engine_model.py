@@ -171,26 +171,68 @@ def check_cuda(err):
 
 
 
+# def preprocess_engine(image_folder, input_size):
+#     start_pre = time.perf_counter()
+#     transform = transforms.Compose([
+#         transforms.Resize(input_size),
+#         transforms.ToTensor(),
+#     ])
+#     image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
+#     if not image_files:
+#         raise ValueError("No images found in the specified folder.")
+
+#     batch_images = []
+#     for image_name in image_files:
+#         image_path = os.path.join(image_folder, image_name)
+#         image = Image.open(image_path).convert("RGB")
+#         batch_images.append(transform(image))
+
+#     batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
+#     return batch_numpy, image_files, (time.perf_counter() - start_pre) * 1000
+
 def preprocess_engine(image_folder, input_size):
     start_pre = time.perf_counter()
+
     transform = transforms.Compose([
         transforms.Resize(input_size),
         transforms.ToTensor(),
     ])
-    image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
-    if not image_files:
+    
+    # Read image filenames
+    image_files = sorted([
+        file for file in os.listdir(image_folder)
+        if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+    ])
+
+    if len(image_files) == 0:
         raise ValueError("No images found in the specified folder.")
 
     batch_images = []
+
+    print("=" * 60)
+    print("PREPROCESS")
+    print("=" * 60)
+
     for image_name in image_files:
         image_path = os.path.join(image_folder, image_name)
         image = Image.open(image_path).convert("RGB")
-        batch_images.append(transform(image))
+        tensor = transform(image)
+        batch_images.append(tensor)
 
-    batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
-    return batch_numpy, image_files, (time.perf_counter() - start_pre) * 1000
+    # Stack into batch
+    batch_tensor = torch.stack(batch_images, dim=0)
 
+    # Convert to NumPy
+    batch_numpy = batch_tensor.numpy().astype(np.float32)
 
+    print(f"Number of Images : {len(image_files)}")
+    print(f"Input Shape      : {batch_numpy.shape}")
+    print()
+
+    end_pre = time.perf_counter()
+    preprocess_time_ms = (end_pre - start_pre) * 1000
+
+    return batch_numpy, image_files, preprocess_time_ms
 
 
 
@@ -342,7 +384,7 @@ def main():
 
     batch_size = len(image_files)
     total_run_time_ms = preprocess_ms + inference_ms + postprocess_ms
-    
+
     performance_metadata = {
         "Total Images Processed": str(batch_size),
         "Total Run Time": f"{total_run_time_ms:.2f} ms",
