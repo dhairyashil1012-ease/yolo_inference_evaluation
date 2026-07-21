@@ -154,13 +154,41 @@ def get_model_details(onnx_model_path):
 
 
 
-def inference_onnx(onnx_model, batch_numpy):
+# def inference_onnx(onnx_model, batch_numpy):
+#     ort.preload_dlls()
+#     opts = ort.SessionOptions()
+#     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
+#     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'], sess_options=opts)
+
+#     input_name = session.get_inputs()[0].name
+
+#     # Frame Execution Edge synchronization
+#     if torch.cuda.is_available():
+#         torch.cuda.synchronize()
+
+#     start_inf = time.perf_counter()
+#     outputs = session.run(None, {input_name: batch_numpy})
+    
+#     if torch.cuda.is_available():
+#         torch.cuda.synchronize()
+#     end_inf = time.perf_counter()
+
+#     return outputs[0], (end_inf - start_inf) * 1000
+def inference_onnx(onnx_model, batch_numpy, warmup_runs=10):
     ort.preload_dlls()
     opts = ort.SessionOptions()
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'], sess_options=opts)
 
     input_name = session.get_inputs()[0].name
+
+    # --- GPU Warm-up Phase ---
+    if 'CUDAExecutionProvider' in session.get_providers():
+        for _ in range(warmup_runs):
+            _ = session.run(None, {input_name: batch_numpy})
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+    # -------------------------
 
     # Frame Execution Edge synchronization
     if torch.cuda.is_available():
@@ -174,6 +202,7 @@ def inference_onnx(onnx_model, batch_numpy):
     end_inf = time.perf_counter()
 
     return outputs[0], (end_inf - start_inf) * 1000
+
 
 
 
@@ -266,7 +295,7 @@ def main():
     avg_inference = inference_ms / batch_size
     avg_postprocess = postprocess_ms / batch_size
     total_pipeline_ms = preprocess_ms + inference_ms + postprocess_ms
-
+    avg_total_time_ms = avg_preprocess + avg_inference + avg_postprocess
     print("=" * 60)
     print("ONNX RUNTIME PERFORMANCE")
     print("=" * 60)
