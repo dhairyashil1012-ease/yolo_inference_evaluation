@@ -291,7 +291,7 @@ def main():
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),
         **sys_env,
-        **model_spec
+        **model_spe
     }
 
 

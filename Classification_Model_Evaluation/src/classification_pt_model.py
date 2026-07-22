@@ -21,9 +21,6 @@ PROJECT_DIR = Path.cwd()
 config = ConfigParser()
 config.read(PROJECT_DIR / "config.txt")
 
-# ==========================================================
-# PATHS
-# ==========================================================
 
 MODEL_DIR = PROJECT_DIR / config["PATHS"]["MODEL_DIR"]
 IMAGE_DIR = PROJECT_DIR / config["PATHS"]["IMAGE_DIR"]
@@ -47,6 +44,7 @@ OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 REPORT_DIR.mkdir(parents=True, exist_ok=True)
 
 
+
 def setup_model():
     if MODEL_PATH.exists():
         print(f"Using existing model : {MODEL_PATH}")
@@ -63,32 +61,13 @@ def setup_model():
     print(f"Model saved to : {MODEL_PATH}")
 
 
+
 def load_model(model_path):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Running on : {device}")
     model = YOLO(model_path)
     model.to(device)
     return model
-
-
-def preprocess(folder_path):
-    image_paths = sorted([
-        folder_path / file
-        for file in os.listdir(folder_path)
-        if file.lower().endswith(
-            (".jpg", ".jpeg", ".png", ".bmp", ".webp")
-        )
-    ])
-
-    print("\n" + "=" * 60)
-    print("PREPROCESS")
-    print("=" * 60)
-    print(f"Images Found : {len(image_paths)}")
-
-    for img in image_paths:
-        print(img.name)
-
-    return image_paths
 
 
 
@@ -100,17 +79,13 @@ def get_system_env_info():
         device_model = torch.cuda.get_device_name(0)
         cuda_version = torch.version.cuda
         
-    # Standard fallback
     os_name = f"{platform.system()} {platform.release()}"
     
-    # Accurate Linux distribution detection using built-in tools
     if platform.system() == "Linux":
         try:
-            # Works natively in Python 3.10+
             os_info = platform.freedesktop_os_release()
             os_name = os_info.get("PRETTY_NAME", os_name)
         except (AttributeError, OSError):
-            # Safe manual fallback for older Python versions (< 3.10)
             if os.path.exists("/etc/os-release"):
                 with open("/etc/os-release") as f:
                     for line in f:
@@ -127,7 +102,6 @@ def get_system_env_info():
         "Inference Device": device_model,
         "CUDA Version": cuda_version
     }
-
 
 
 def get_model_details(model, model_path):
@@ -151,101 +125,101 @@ def get_model_details(model, model_path):
 
 
 
+def preprocess(folder_path):
+
+    folder = Path(folder_path)
+    if not folder.is_dir():
+        raise FileNotFoundError(f"Directory not found: {folder_path}")
+
+    print("\n" + "=" * 60)
+    print("PREPROCESS")
+    print("=" * 60)
+    print(f"Processing source directory: {folder.resolve()}")
+    
+    return folder
+
+
+
+
 def inference(model, folder_path):
-    # 1. Reset GPU tracking and clear cache if available
+
     if torch.cuda.is_available():
         torch.cuda.empty_cache()
         torch.cuda.reset_peak_memory_stats()
+        torch.cuda.synchronize()
     
-    # 2. Track baseline CPU memory
     process = psutil.Process(os.getpid())
     cpu_mem_start = process.memory_info().rss
 
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-
-    # 3. Define execution device
     device = 0 if torch.cuda.is_available() else "cpu"
 
-    # 4. Execute inference and time it
-    start = time.perf_counter()
+    start_wall = time.perf_counter()
     results = model.predict(
         source=str(folder_path),
         imgsz=INPUT_SIZE,
         device=device,
         verbose=False,
-        # stream=True # Uncomment if processing massive folders to avoid holding all results in RAM
     )
+    
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-    end = time.perf_counter()
+    end_wall = time.perf_counter()
 
-    # 5. Calculate Timings
-    total_time_ms = (end - start) * 1000
     batch_size = len(results)
-    
-    # Extract internal speed breakdown from YOLO results dictionary
-    avg_preprocess_ms = sum(r.speed.get('preprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-    inference_time_from_results = sum(r.speed.get('inference', 0.0) for r in results)
-    avg_postprocess_ms = sum(r.speed.get('postprocess', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-    avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) / batch_size if batch_size > 0 else 0
-    avg_total_time_ms = avg_preprocess_ms + avg_postprocess_ms + avg_inference_ms
-    cpu_mem_end = process.memory_info().rss
-    peak_cpu_diff_mb = max(0, cpu_mem_end - cpu_mem_start) / (1024 * 1024)
+    total_wall_ms = (end_wall - start_wall) * 1000
+    total_wall_sec = end_wall - start_wall
     
 
+    avg_preprocess_ms = sum(r.speed.get('preprocess', 0.0) for r in results) / batch_size
+    avg_inference_ms = sum(r.speed.get('inference', 0.0) for r in results) / batch_size
+    avg_postprocess_ms = sum(r.speed.get('postprocess', 0.0) for r in results) / batch_size
+    avg_total_time_ms = avg_preprocess_ms + avg_postprocess_ms + avg_inference_ms
+
+    throughput = batch_size / ((avg_total_time_ms*batch_size)/1000) 
+    
     if torch.cuda.is_available():
-        # Captures total VRAM allocated/cached by PyTorch (aligns with nvidia-smi)
         peak_gpu_reserved_mb = torch.cuda.max_memory_reserved(0) / (1024 * 1024)
         gpu_memory_str = f"{peak_gpu_reserved_mb:.2f} MB"
     else:
         gpu_memory_str = "N/A (Running on CPU)"
 
-    # 7. Construct performance metrics dictionary
-    # perf_metrics = {
-    #     "Total Images Processed": batch_size,
-    #     "Inference Time (time.perf_counter)": f"{total_time_ms:.2f} ms",
-    #     "Inference Time (YOLO Results)": f"{inference_time_from_results:.2f} ms",
-    #     # "Peak System RAM CPU": f"{peak_cpu_diff_mb:.2f} MB",
-    #     "Peak GPU VRAM Reserved": gpu_memory_str,
-    #     "Throughput": f"{batch_size / (end - start):.2f} Images/sec" if batch_size > 0 else "0.00 Images/sec"
-    # }
     perf_metrics = {
         "Total Images Processed": batch_size,
-        "Total Time in ms": f"{avg_total_time_ms * batch_size:.2f} ms",
-        "Avg. Preprocess Time": f"{avg_preprocess_ms:.2f} ms",
-        "Avg Inference Time": f"{avg_inference_ms:.2f} ms",
-        "Avg PostProcess Time": f"{avg_postprocess_ms:.2f} ms",
-        "Peak GPU": gpu_memory_str,
-        "Throughput": f"{batch_size / (end - start):.2f} Images/sec" if batch_size > 0 else "0.00 Images/sec"
+        "Total Run Time": f"{avg_total_time_ms*batch_size:.2f} ms",
+        "Preprocess Latency": f"{avg_preprocess_ms:.2f} ms",
+        "Inference Latency": f"{avg_inference_ms:.2f} ms",
+        "Postprocess Latency": f"{avg_postprocess_ms:.2f} ms",
+        "Peak Memory Usage": gpu_memory_str,
+        "Throughput": f"{throughput:.2f} Images/sec"
     }
 
     return results, perf_metrics
 
 
-
-def postprocess(results, image_paths):
+def postprocess(results):
     print("=" * 60)
     print("PREDICTIONS")
     print("=" * 60)
 
     prediction_metadata = []
 
-    for image_path, result in zip(image_paths, results):
+    for result in results:
         probs = result.probs
         if probs is None:
             continue
             
+        image_path = Path(result.path)
+        
         class_id = probs.top1
-        confidence = probs.top1conf.item()
+        confidence = probs.top1conf.item() * 100
         class_name = result.names[class_id]
+        
         image = cv2.imread(str(image_path))
         if image is None:
             print(f"Unable to read {image_path}")
             continue
         
-        confidence = confidence * 100
-        file_name = Path(image_path).name
+        file_name = image_path.name
         text = f"{class_name}: {confidence:.1f}%"
         print(f"Image: {file_name} -> {text}")
 
@@ -254,7 +228,9 @@ def postprocess(results, image_paths):
         thickness = 2
         text_size, baseline = cv2.getTextSize(text, font, font_scale, thickness)
         text_x, text_y = 20, 40
-        cv2.rectangle(image, (text_x - 5, text_y - text_size[1] - 5), (text_x + text_size[0] + 5, text_y + baseline), (0, 0, 0), cv2.FILLED)
+        
+        cv2.rectangle(image, (text_x - 5, text_y - text_size[1] - 5), 
+                      (text_x + text_size[0] + 5, text_y + baseline), (0, 0, 0), cv2.FILLED)
         cv2.putText(image, text, (text_x, text_y), font, font_scale, (0, 255, 0), thickness)
 
         save_path = OUTPUT_DIR / file_name
@@ -278,7 +254,7 @@ def main():
     model_details = get_model_details(model, MODEL_PATH)
     
     results, perf_metrics = inference(model, IMAGE_DIR)
-    predictions = postprocess(results, image_paths)
+    predictions = postprocess(results)
     
     config_dict = {
         "Model Name": str(MODEL_NAME),

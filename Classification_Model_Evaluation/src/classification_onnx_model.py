@@ -11,10 +11,10 @@ import numpy as np
 import ultralytics  
 import platform
 from pathlib import Path
+import onnxruntime as ort
 from PIL import Image
 from configparser import ConfigParser
 from ultralytics import YOLO
-import onnxruntime as ort
 import torchvision.transforms as transforms
 from src.report_generator import generate_pdf_report
 
@@ -28,7 +28,7 @@ OUTPUT_DIR = PROJECT_DIR / config["PATHS"]["ONNX_OUTPUT_DIR"]
 YAML_DIR = PROJECT_DIR / config["PATHS"]["YAML_DIR"]
 REPORT_DIR = PROJECT_DIR / config['PATHS']["REPORT_OUTPUT_DIR"]
 MODEL_NAME = config["PATHS"]["PT_MODEL_NAME"]
-LABEL_NAME = "label.txt" 
+LABEL_NAME = config["PATHS"]["LABEL_NAME"]
 
 MODEL_PATH = MODEL_DIR / MODEL_NAME
 LABEL_PATH = YAML_DIR / LABEL_NAME
@@ -39,8 +39,17 @@ INPUT_SIZE = (
     config.getint("MODEL", "INPUT_WIDTH"),
 )
 
-for d in [MODEL_DIR, IMAGE_DIR, OUTPUT_DIR, YAML_DIR, REPORT_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+REPORT_DIR.mkdir(parents=True, exist_ok=True)
+
+
+
+def load_model(model_path):
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    model = YOLO(model_path)
+    model.to(device)
+    return model
 
 
 def load_onnx_model(model_dir):
@@ -58,38 +67,8 @@ def export_onnx_model(model):
         dynamic=True,
         device="cuda" if torch.cuda.is_available() else "cpu",
     )
+    print("\nONNX export completed successfully.")
     time.sleep(1)
-
-
-
-def load_model(model_path):
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    model = YOLO(model_path)
-    model.to(device)
-    return model
-
-
-
-
-def preprocess_onnx(image_folder, input_size):
-    start_pre = time.perf_counter()
-    transform = transforms.Compose([
-        transforms.Resize(input_size),
-        transforms.ToTensor(),
-    ])
-    image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
-    if not image_files:
-        raise ValueError("No images found in the specified folder.")
-
-    batch_images = []
-    for image_name in image_files:
-        image_path = os.path.join(image_folder, image_name)
-        image = Image.open(image_path).convert("RGB")
-        batch_images.append(transform(image))
-
-    batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
-    return batch_numpy, image_files, (time.perf_counter() - start_pre) * 1000
-
 
 
 def get_system_env_info():
@@ -119,14 +98,13 @@ def get_system_env_info():
     }
 
 
-
 def get_model_details(onnx_model_path):
     onnx_model_path = Path(onnx_model_path)
     if not onnx_model_path.exists():
         return {"Total Parameters": "Unknown", "File Size": "Unknown", "Number of Classes": "Unknown", "Class Names": "Unknown", "Precision Mode": "Unknown"}
 
     model = onnx.load(str(onnx_model_path))
-    session = ort.InferenceSession(str(onnx_model_path), providers=["CPUExecutionProvider"])
+    session = ort.InferenceSession(str(onnx_model_path), providers=["CUDAExecutionProvider", "CPUExecutionProvider"])
     metadata = session.get_modelmeta().custom_metadata_map
 
     total_params = sum(np.prod(tensor.dims) for tensor in model.graph.initializer)
@@ -153,57 +131,58 @@ def get_model_details(onnx_model_path):
     }
 
 
+def preprocess_onnx(image_files, image_folder, input_size):
 
-# def inference_onnx(onnx_model, batch_numpy):
-#     ort.preload_dlls()
-#     opts = ort.SessionOptions()
-#     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
-#     session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'], sess_options=opts)
+    start_pre = time.perf_counter()
+    transform = transforms.Compose([transforms.Resize(input_size), transforms.ToTensor()])
 
-#     input_name = session.get_inputs()[0].name
+    batch_images = []
+    for image_name in image_files:
+        image_path = os.path.join(image_folder, image_name)
+        image = Image.open(image_path).convert("RGB")
+        batch_images.append(transform(image))
 
-#     # Frame Execution Edge synchronization
-#     if torch.cuda.is_available():
-#         torch.cuda.synchronize()
+    batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
+    return batch_numpy, (time.perf_counter() - start_pre) * 1000
 
-#     start_inf = time.perf_counter()
-#     outputs = session.run(None, {input_name: batch_numpy})
-    
-#     if torch.cuda.is_available():
-#         torch.cuda.synchronize()
-#     end_inf = time.perf_counter()
 
-#     return outputs[0], (end_inf - start_inf) * 1000
-def inference_onnx(onnx_model, batch_numpy, warmup_runs=10):
+def inference_onnx(onnx_model, batch_numpy, warmup_runs):
+
     ort.preload_dlls()
     opts = ort.SessionOptions()
     opts.add_session_config_entry("session.required_cuda_compute_capability", "0") 
-    session = ort.InferenceSession(onnx_model, providers=['CUDAExecutionProvider', 'CPUExecutionProvider'], sess_options=opts)
+    
+    session = ort.InferenceSession(
+        str(onnx_model), 
+        providers=['CUDAExecutionProvider', 'CPUExecutionProvider'], 
+        sess_options=opts
+    )
 
     input_name = session.get_inputs()[0].name
+    input_feed = {input_name: batch_numpy}
 
-    # --- GPU Warm-up Phase ---
-    if 'CUDAExecutionProvider' in session.get_providers():
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+        
+    start_cold = time.perf_counter()
+    outputs = session.run(None, input_feed)
+    if torch.cuda.is_available():
+        torch.cuda.synchronize()
+    inference_cold_ms = (time.perf_counter() - start_cold) * 1000
+
+    if warmup_runs > 0:
         for _ in range(warmup_runs):
-            _ = session.run(None, {input_name: batch_numpy})
+            _ = session.run(None, input_feed)
         if torch.cuda.is_available():
             torch.cuda.synchronize()
-    # -------------------------
 
-    # Frame Execution Edge synchronization
+    start_warm = time.perf_counter()
+    outputs = session.run(None, input_feed)
     if torch.cuda.is_available():
         torch.cuda.synchronize()
-
-    start_inf = time.perf_counter()
-    outputs = session.run(None, {input_name: batch_numpy})
+    inference_warm_ms = (time.perf_counter() - start_warm) * 1000
     
-    if torch.cuda.is_available():
-        torch.cuda.synchronize()
-    end_inf = time.perf_counter()
-
-    return outputs[0], (end_inf - start_inf) * 1000
-
-
+    return outputs[0], inference_cold_ms, inference_warm_ms
 
 
 def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
@@ -229,17 +208,27 @@ def postprocess_onnx(predictions, image_files, folder_path, txt_label_path):
         cv2.imwrite(str(OUTPUT_DIR / f"pred_{file_name}"), image)
         
         prediction_metadata.append({"file_name": file_name, "class_name": class_name, "confidence": confidence})
-
-    return prediction_metadata, (time.perf_counter() - start_post) * 1000
+    
+    end_post = time.perf_counter()
+    postprocess_time_ms = (end_post - start_post) * 1000
+    return prediction_metadata, postprocess_time_ms
 
 
 def main():
     try:
-        onnx_model_path = load_onnx_model(MODEL_DIR)
+        onnx_model_path = Path(load_onnx_model(MODEL_DIR))
     except FileNotFoundError:
         model = load_model(MODEL_PATH)
         export_onnx_model(model)
-        onnx_model_path = load_onnx_model(MODEL_DIR)
+        onnx_model_path = Path(load_onnx_model(MODEL_DIR))
+
+    image_files = sorted([
+        f for f in os.listdir(IMAGE_DIR) 
+        if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+    ])
+    
+    if not image_files:
+        raise ValueError(f"No valid source images found inside: {IMAGE_DIR}")
 
     has_nvml = False
     peak_vram_bytes = 0
@@ -264,15 +253,15 @@ def main():
                             peak_vram_bytes = p.usedGpuMemory
             except Exception:
                 pass
-            time.sleep(0.005)  # Sample every 5ms
+            time.sleep(0.005)
 
     if has_nvml:
         mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
         mem_thread.start()
 
-    batch_numpy, image_files, preprocess_ms = preprocess_onnx(IMAGE_DIR, INPUT_SIZE)
+    batch_numpy, preprocess_ms = preprocess_onnx(image_files, IMAGE_DIR, INPUT_SIZE)
     
-    raw_predictions, inference_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy)
+    raw_predictions, inf_cold_ms, inf_warm_ms = inference_onnx(onnx_model=onnx_model_path, batch_numpy=batch_numpy, warmup_runs=1)
 
     prediction_metadata, postprocess_ms = postprocess_onnx(
         predictions=raw_predictions,
@@ -287,32 +276,30 @@ def main():
 
     peak_mem_mb = peak_vram_bytes / (1024 * 1024)
     if has_nvml:
-        pynvml.nvmlShutdown()  # Safe shutdown after extraction
-
-    batch_size = len(image_files)
-    inference_time_in_second = inference_ms
-    avg_preprocess = preprocess_ms / batch_size
-    avg_inference = inference_ms / batch_size
-    avg_postprocess = postprocess_ms / batch_size
-    total_pipeline_ms = preprocess_ms + inference_ms + postprocess_ms
-    avg_total_time_ms = avg_preprocess + avg_inference + avg_postprocess
-    print("=" * 60)
-    print("ONNX RUNTIME PERFORMANCE")
-    print("=" * 60)
-    print(f"Total Images Processed : {batch_size}")
-    print(f"Total Pipeline Time    : {total_pipeline_ms:.2f} ms")
-    print(f"Preprocess Latency     : {avg_preprocess:.2f} ms per image")
-    print(f"Inference Latency      : {avg_inference:.2f} ms per image")
-    print(f"Postprocess Latency    : {avg_postprocess:.2f} ms per image")
-    print(f"Peak VRAM Usage        : {peak_mem_mb:.2f} MB")
-
-    print(f"\nSummary -> preprocess: {avg_preprocess:.1f}ms, inference: {avg_inference:.1f}ms, postprocess: {avg_postprocess:.1f}ms per image\n")
+        pynvml.nvmlShutdown()  
 
     env_info = get_system_env_info()
     model_details = get_model_details(onnx_model_path)
-    onnx_model_name =(onnx_model_path.split('/')[-1:]) #output: ./from_here/thefile.txt
+
+    batch_size = len(image_files)
+    avg_preprocess = preprocess_ms / batch_size
+    avg_postprocess = postprocess_ms / batch_size
+    
+    total_pipeline_cold = preprocess_ms + inf_cold_ms + postprocess_ms
+    total_pipeline_warm = preprocess_ms + inf_warm_ms + postprocess_ms
+
+    print("=" * 60)
+    print("ONNX RUNTIME PROFILE RUN SUMMARY")
+    print("=" * 60)
+    print(f"Total Images Processed : {batch_size}")
+    print(f"Preprocess Latency     : {avg_preprocess:.2f} ms per image")
+    print(f"Inference (Cold Run)   : {inf_cold_ms / batch_size:.2f} ms per image")
+    print(f"Inference (Warm Run)   : {inf_warm_ms / batch_size:.2f} ms per image")
+    print(f"Postprocess Latency    : {avg_postprocess:.2f} ms per image")
+    print(f"Peak VRAM Usage        : {peak_mem_mb:.2f} MB")
+
     config_dict = {
-        "Model Name": str(onnx_model_name[0]),
+        "Model Name": str(onnx_model_path.name),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Label Map": str(LABEL_PATH),
         "Source Images Directory": str(IMAGE_DIR),
@@ -324,25 +311,25 @@ def main():
 
     performance_metadata = {
         "Total Images Processed": str(batch_size),
-        "Total Run Time": f"{total_pipeline_ms:.2f} ms",
-        "Total Inference Time in ms": f"{inference_time_in_second:.2f}ms",
         "Preprocess Latency": f"{avg_preprocess:.2f} ms per image",
-        "Inference Latency": f"{avg_inference:.2f} ms per image",
         "Postprocess Latency": f"{avg_postprocess:.2f} ms per image",
-        "Throughput": f"{(batch_size / (total_pipeline_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f" {peak_mem_mb:.2f} MB"
+        "Peak Memory Usage": f"{peak_mem_mb:.2f} MB",
+        "Inference Latency (Without Warmup)": f"{inf_cold_ms / batch_size:.2f} ms per image",
+        "Inference Latency (With Warmup)": f"{inf_warm_ms / batch_size:.2f} ms per image",
+        "Throughput (Without Warmup)": f"{(batch_size / (total_pipeline_cold / 1000.0)):.2f} Images/sec",
+        "Throughput (With Warmup)": f"{(batch_size / (total_pipeline_warm / 1000.0)):.2f} Images/sec",
+        "Total Run Time (Without Warmup)": f"{total_pipeline_cold:.2f} ms",
+        "Total Run Time (With Warmup)": f"{total_pipeline_warm:.2f} ms"
     }
-
         
     generate_pdf_report(
         output_pdf_path=REPORT_PDF_PATH,
         backend="onnx",
         config_data=config_dict,
-        performance_data=performance_metadata ,
+        performance_data=performance_metadata,
         predictions=prediction_metadata
     )
 
 
 if __name__ == "__main__":
     main()
-    

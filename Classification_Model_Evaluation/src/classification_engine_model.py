@@ -39,10 +39,10 @@ INPUT_SIZE = (
     config.getint("MODEL", "INPUT_WIDTH"),
 )
 
-
-for d in [MODEL_DIR, OUTPUT_DIR, IMAGE_DIR, LABEL_DIR, REPORT_DIR]:
-    d.mkdir(parents=True, exist_ok=True)
-
+MODEL_DIR.mkdir(parents=True, exist_ok=True)
+IMAGE_DIR.mkdir(parents=True, exist_ok=True)
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+LABEL_DIR.mkdir(parents=True, exist_ok=True) 
 
 
 def get_system_env_info():
@@ -77,7 +77,6 @@ def get_system_env_info():
         "Inference Device": device_model,
         "CUDA Version": cuda_version
     }
-
 
 
 def get_model_details(engine_model_path, label_path):
@@ -127,14 +126,11 @@ def get_model_details(engine_model_path, label_path):
     }
 
 
-
 def load_onnx_model(model_dir):
     filelist = sorted([str(f) for f in Path(model_dir).glob("**/*.onnx")])
     if not filelist:
         raise FileNotFoundError("No ONNX model found to export engine from.")
     return filelist[-1]
-
-
 
 
 def export_engine_model(onnx_model_p):
@@ -153,14 +149,11 @@ def export_engine_model(onnx_model_p):
     time.sleep(1)
 
 
-
-
 def load_engine_model(model_dir):
     filelist = sorted([str(f) for f in Path(model_dir).glob("**/*.engine")])
     if not filelist:
         raise FileNotFoundError("No engine model found.")
     return filelist[-1]
-
 
 
 def check_cuda(err):
@@ -170,48 +163,19 @@ def check_cuda(err):
         raise RuntimeError(f"CUDA Error: {err}")
 
 
+def preprocess_engine(image_files, image_folder, input_size):
+    print("=" * 60)
+    print("PREPROCESS")
+    print("=" * 60)
 
-# def preprocess_engine(image_folder, input_size):
-#     start_pre = time.perf_counter()
-#     transform = transforms.Compose([
-#         transforms.Resize(input_size),
-#         transforms.ToTensor(),
-#     ])
-#     image_files = sorted([f for f in os.listdir(image_folder) if f.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))])
-#     if not image_files:
-#         raise ValueError("No images found in the specified folder.")
-
-#     batch_images = []
-#     for image_name in image_files:
-#         image_path = os.path.join(image_folder, image_name)
-#         image = Image.open(image_path).convert("RGB")
-#         batch_images.append(transform(image))
-
-#     batch_numpy = torch.stack(batch_images, dim=0).numpy().astype(np.float32)
-#     return batch_numpy, image_files, (time.perf_counter() - start_pre) * 1000
-
-def preprocess_engine(image_folder, input_size):
     start_pre = time.perf_counter()
 
     transform = transforms.Compose([
         transforms.Resize(input_size),
         transforms.ToTensor(),
     ])
-    
-    # Read image filenames
-    image_files = sorted([
-        file for file in os.listdir(image_folder)
-        if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
-    ])
-
-    if len(image_files) == 0:
-        raise ValueError("No images found in the specified folder.")
 
     batch_images = []
-
-    print("=" * 60)
-    print("PREPROCESS")
-    print("=" * 60)
 
     for image_name in image_files:
         image_path = os.path.join(image_folder, image_name)
@@ -219,10 +183,7 @@ def preprocess_engine(image_folder, input_size):
         tensor = transform(image)
         batch_images.append(tensor)
 
-    # Stack into batch
     batch_tensor = torch.stack(batch_images, dim=0)
-
-    # Convert to NumPy
     batch_numpy = batch_tensor.numpy().astype(np.float32)
 
     print(f"Number of Images : {len(image_files)}")
@@ -232,17 +193,42 @@ def preprocess_engine(image_folder, input_size):
     end_pre = time.perf_counter()
     preprocess_time_ms = (end_pre - start_pre) * 1000
 
-    return batch_numpy, image_files, preprocess_time_ms
+    return batch_numpy, preprocess_time_ms
 
 
+def inference_engine(batch_numpy, engine_model, warmup_iters=10):
 
-def inference_engine(batch_numpy, engine_model):
     TRT_LOGGER = trt.Logger(trt.Logger.WARNING)
+    my_pid = os.getpid()
+
+    with open(engine_model, "rb") as f:
+        runtime = trt.Runtime(TRT_LOGGER)
+        engine = runtime.deserialize_cuda_engine(f.read())
+
+    context = engine.create_execution_context()
+    input_name = engine.get_tensor_name(0)
+    output_name = engine.get_tensor_name(1)
+
+    context.set_input_shape(input_name, batch_numpy.shape)
+    output_shape = tuple(context.get_tensor_shape(output_name))
+
+    host_input = np.ascontiguousarray(batch_numpy)
+    host_output = np.empty(output_shape, dtype=np.float32)
+
+    err, d_input = cudart.cudaMalloc(host_input.nbytes)
+    check_cuda(err)
+    err, d_output = cudart.cudaMalloc(host_output.nbytes)
+    check_cuda(err)
+
+    err, stream = cudart.cudaStreamCreate()
+    check_cuda(err)
+
+    context.set_tensor_address(input_name, int(d_input))
+    context.set_tensor_address(output_name, int(d_output))
 
     has_nvml = False
     peak_vram_bytes = 0
     stop_tracking = False
-    my_pid = os.getpid()
 
     try:
         pynvml.nvmlInit()
@@ -264,65 +250,52 @@ def inference_engine(batch_numpy, engine_model):
                 pass
             time.sleep(0.005)
 
-
     if has_nvml:
         mem_thread = threading.Thread(target=track_peak_memory, daemon=True)
         mem_thread.start()
 
-  
-    with open(engine_model, "rb") as f:
-        runtime = trt.Runtime(TRT_LOGGER)
-        engine = runtime.deserialize_cuda_engine(f.read())
+    check_cuda(cudart.cudaMemcpyAsync(d_input, host_input.ctypes.data, host_input.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, stream))
+    
+    start_cold = time.perf_counter()
+    context.execute_async_v3(stream)
+    check_cuda(cudart.cudaStreamSynchronize(stream))
+    inference_cold_ms = (time.perf_counter() - start_cold) * 1000
 
-    context = engine.create_execution_context()
-    input_name = engine.get_tensor_name(0)
-    output_name = engine.get_tensor_name(1)
-
-    context.set_input_shape(input_name, batch_numpy.shape)
-    output_shape = tuple(context.get_tensor_shape(output_name))
-
-    host_input = np.ascontiguousarray(batch_numpy)
-    host_output = np.empty(output_shape, dtype=np.float32)
-
-
-    err, d_input = cudart.cudaMalloc(host_input.nbytes)
-    check_cuda(err)
-    err, d_output = cudart.cudaMalloc(host_output.nbytes)
-    check_cuda(err)
-
-    err, stream = cudart.cudaStreamCreate()
-    check_cuda(err)
-
+    for _ in range(warmup_iters):
+        context.execute_async_v3(stream)
+    check_cuda(cudart.cudaStreamSynchronize(stream))
+    stop_tracking = True
+    # if has_nvml:
+    #     mem_thread.join()
+    #     peak_gpu_usage_mb = peak_vram_bytes / (1024 * 1024)
+    #     pynvml.nvmlShutdown()
+    # else:
+    #     peak_gpu_usage_mb = 0.0
 
     check_cuda(cudart.cudaMemcpyAsync(d_input, host_input.ctypes.data, host_input.nbytes, cudart.cudaMemcpyKind.cudaMemcpyHostToDevice, stream))
-
-    start = time.perf_counter()
-    context.set_tensor_address(input_name, int(d_input))
-    context.set_tensor_address(output_name, int(d_output))
+    
+    start_warm = time.perf_counter()
     context.execute_async_v3(stream)
-
     check_cuda(cudart.cudaMemcpyAsync(host_output.ctypes.data, d_output, host_output.nbytes, cudart.cudaMemcpyKind.cudaMemcpyDeviceToHost, stream))
     check_cuda(cudart.cudaStreamSynchronize(stream))
+    inference_warm_ms = (time.perf_counter() - start_warm) * 1000
 
-    inference_time = (time.perf_counter() - start) * 1000
+    print(f"Cold Inference (Without Warmup) : {inference_cold_ms:.2f} ms")
+    print(f"Warm Inference (With Warmup)    : {inference_warm_ms:.2f} ms")
 
     stop_tracking = True
     if has_nvml:
         mem_thread.join()
-
-
-    peak_gpu_usage_mb = peak_vram_bytes / (1024 * 1024)
-    if has_nvml:
+        peak_gpu_usage_mb = peak_vram_bytes / (1024 * 1024)
         pynvml.nvmlShutdown()
-
+    else:
+        peak_gpu_usage_mb = 0.0
 
     cudart.cudaFree(d_input)
     cudart.cudaFree(d_output)
     cudart.cudaStreamDestroy(stream)
 
-    return host_output, inference_time, peak_gpu_usage_mb
-
-
+    return host_output, inference_cold_ms, inference_warm_ms, peak_gpu_usage_mb
 
 
 def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
@@ -352,29 +325,31 @@ def postprocess_engine(predictions, image_files, folder_path, txt_label_path):
     return prediction_results, (time.perf_counter() - start_time) * 1000
 
 
-
 def main():
-
     try:
-
         engine_model_path = Path(load_engine_model(MODEL_DIR))
-
     except FileNotFoundError:    
         onnx_model_path = load_onnx_model(MODEL_DIR)
         export_engine_model(onnx_model_path)
         engine_model_path = Path(load_engine_model(MODEL_DIR))
 
-    batch_numpy, image_files, preprocess_ms = preprocess_engine(IMAGE_DIR, INPUT_SIZE)
-    predictions_raw, inference_ms,peak_gpu_mb = inference_engine(batch_numpy, engine_model_path)
-    predictions_list, postprocess_ms = postprocess_engine(predictions_raw, image_files, IMAGE_DIR, LABEL_PATH)
+    image_files = sorted([
+        file for file in os.listdir(IMAGE_DIR)
+        if file.lower().endswith((".jpg", ".jpeg", ".png", ".bmp", ".webp"))
+    ])
+    
+    if not image_files:
+        raise ValueError(f"No valid images found inside: {IMAGE_DIR}")
 
+    batch_numpy, preprocess_ms = preprocess_engine(image_files, IMAGE_DIR, INPUT_SIZE)
+    predictions_raw, inf_cold_ms, inf_warm_ms, peak_gpu_mb = inference_engine(batch_numpy, engine_model_path, warmup_iters=1)
+    predictions_list, postprocess_ms = postprocess_engine(predictions_raw, image_files, IMAGE_DIR, LABEL_PATH)
 
     env_info = get_system_env_info()
     model_details = get_model_details(engine_model_path, LABEL_PATH)
     
     config_metadata = {
         "Model Name": engine_model_path.name,
-        "Model Path": str(engine_model_path),
         "Input Dimensions": f"{INPUT_SIZE[0]}x{INPUT_SIZE[1]}",
         "Source Images Directory": str(IMAGE_DIR),
         "Processed Images Output": str(OUTPUT_DIR),
@@ -383,17 +358,27 @@ def main():
     }
 
     batch_size = len(image_files)
-    total_run_time_ms = preprocess_ms + inference_ms + postprocess_ms
+    total_run_time_cold_ms = preprocess_ms + inf_cold_ms + postprocess_ms
+    total_run_time_warm_ms = preprocess_ms + inf_warm_ms + postprocess_ms
 
     performance_metadata = {
         "Total Images Processed": str(batch_size),
-        "Total Run Time": f"{total_run_time_ms:.2f} ms",
         "Preprocess Latency": f"{preprocess_ms / batch_size:.2f} ms per image",
-        "Inference Latency": f"{inference_ms / batch_size:.2f} ms per image",
         "Postprocess Latency": f"{postprocess_ms / batch_size:.2f} ms per image",
-        "Throughput": f"{(batch_size / (total_run_time_ms / 1000.0)):.2f} Images/sec",
-        "Peak Memory Usage": f"{peak_gpu_mb:.2f} MB"
+        "Peak Memory Usage": f"{peak_gpu_mb:.2f} MB",
+        "Inference Latency (Without Warmup)": f"{inf_cold_ms / batch_size:.2f} ms per image",
+        "Inference Latency (With Warmup)": f"{inf_warm_ms / batch_size:.2f} ms per image",
+        "Throughput (Without Warmup)": f"{(batch_size / (total_run_time_cold_ms / 1000.0)):.2f} Images/sec",
+        "Throughput (With Warmup)": f"{(batch_size / (total_run_time_warm_ms / 1000.0)):.2f} Images/sec",
+        "Total Run Time (Without Warmup)": f"{total_run_time_cold_ms:.2f} ms",
+        "Total Run Time (With Warmup)": f"{total_run_time_warm_ms:.2f} ms"
     }
+
+    print("=" * 60)
+    print("PERFORMANCE SUMMARY FOR REPORT")
+    print("=" * 60)
+    for key, val in performance_metadata.items():
+        print(f"{key:<35}: {val}")
 
     generate_pdf_report(
         output_pdf_path=REPORT_PDF_PATH,
@@ -402,6 +387,7 @@ def main():
         performance_data=performance_metadata,
         predictions=predictions_list
     )
+
 
 if __name__ == "__main__":
     main()
